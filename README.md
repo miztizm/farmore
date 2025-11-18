@@ -103,9 +103,9 @@ _"They say privacy is dead. Prove them wrong. Use a token."_ — schema.cx
 ## 🔑 Authentication
 
 Farmore uses GitHub Personal Access Tokens (PAT) for authentication. Tokens provide:
-- 🔐 Access to private repositories
-- 🚀 Higher rate limits (5,000 vs 60 requests/hour)
-- 🏢 Organization repository access
+- Access to private repositories
+- Higher rate limits (5,000 vs 60 requests/hour)
+- Organization repository access
 
 ### Creating a Token
 
@@ -348,12 +348,12 @@ backups/miztizm/
 
 ## 🔧 How It Works
 
-1. **🔍 Discovery** - Uses GitHub API to find repositories
-2. **🎯 Filtering** - Applies visibility, fork, and archived filters
-3. **⚡ Parallel Processing** - Processes multiple repos simultaneously
-4. **🔄 Smart Cloning** - Tries SSH first, falls back to HTTPS
-5. **📊 Progress Reporting** - Real-time progress with rich output
-6. **✅ Summary** - Final statistics and error reporting
+1. **Discovery** - Uses GitHub API to find repositories
+2. **Filtering** - Applies visibility, fork, and archived filters
+3. **Parallel Processing** - Processes multiple repos simultaneously
+4. **Smart Cloning** - Tries SSH first, falls back to HTTPS
+5. **Progress Reporting** - Real-time progress with rich output
+6. **Summary** - Final statistics and error reporting
 
 **Key Features:**
 - **Incremental backups** - Updates existing repos, clones new ones
@@ -424,4 +424,4 @@ Built with [Typer](https://typer.tiangolo.com/), [Rich](https://rich.readthedocs
 
 _"The cloud is just someone else's computer. Your backups? Those should be yours."_ — schema.cx
 
-**Made with 🥔 by miztizm @ schema.cx**
+**Made with 🥔 by miztizm**
