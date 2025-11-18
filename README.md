@@ -8,8 +8,6 @@
 **License:** MIT
 **Python:** 3.10+
 
-_"Control is an illusion. But backups? Those are real."_ — schema.cx
-
 ---
 
 ## ✨ Features
@@ -422,6 +420,6 @@ Built with [Typer](https://typer.tiangolo.com/), [Rich](https://rich.readthedocs
 
 ---
 
-_"The cloud is just someone else's computer. Your backups? Those should be yours."_ — schema.cx
+_"Control is an illusion. But backups? Those are real."_ — schema.cx
 
 **Made with 🥔 by miztizm**
