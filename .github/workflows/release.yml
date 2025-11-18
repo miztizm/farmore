@@ -16,6 +16,8 @@ on:
 
 permissions:
   contents: write  # Required for creating releases
+  packages: write  # Required for publishing to GitHub Packages
+  id-token: write  # Required for trusted publishing to PyPI
 
 jobs:
   build-and-release:
@@ -48,7 +50,11 @@ jobs:
         run: |
           echo "Build artifacts created:"
           ls -lh dist/
-      
+          echo ""
+          echo "Verifying package contents:"
+          python -m pip install twine
+          twine check dist/*
+
       - name: Determine tag name
         id: tag
         run: |
@@ -58,6 +64,21 @@ jobs:
             echo "tag_name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
       
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          skip-existing: true
+          verbose: true
+        continue-on-error: true  # Don't fail the workflow if TestPyPI publish fails
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          verbose: true
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:

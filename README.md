@@ -409,8 +409,8 @@ Contributions welcome! Please:
 
 ## 💬 Support
 
-- [🐛 **Issues**](https://github.com/miztizm/farmore/issues)
-- [📩 **Email**](mailto:&#103;&#105;&#116;&#104;&#117;&#98;&#64;&#109;&#105;&#122;&#116;&#105;&#122;&#109;&#46;&#99;&#111;&#109;)
+- 🐛 For bugs, [**Issues**](https://github.com/miztizm/farmore/issues)
+- 📩 For questions, [**Email**](mailto:&#103;&#105;&#116;&#104;&#117;&#98;&#64;&#109;&#105;&#122;&#116;&#105;&#122;&#109;&#46;&#99;&#111;&#109;)
 
 ---
 
