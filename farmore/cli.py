@@ -382,8 +382,8 @@ def user(
     "Every user has secrets. Make sure their repos aren't lost." — schema.cx
 
     Example:
-        farmore user octocat
-        farmore user octocat --dest ./custom_backups
+        farmore user miztizm
+        farmore user miztizm --dest ./custom_backups
         farmore user miztizm --include-issues --include-pulls --include-wikis
     """
     # Use default destination if not provided
@@ -598,8 +598,8 @@ def profile(
 
     Example:
         farmore profile
-        farmore profile octocat
-        farmore profile octocat --dest ./custom_profile.yaml --format yaml
+        farmore profile miztizm
+        farmore profile miztizm --dest ./custom_profile.yaml --format yaml
     """
     if format.lower() not in ["json", "yaml"]:
         console.print("[red]❌ Error: Format must be 'json' or 'yaml'[/red]")
@@ -708,8 +708,8 @@ def starred(
 
     Example:
         farmore starred
-        farmore starred octocat
-        farmore starred octocat --dest ./custom_starred
+        farmore starred miztizm
+        farmore starred miztizm --dest ./custom_starred
     """
     # Need to get the actual username first to determine default dest
     # Create a temporary config to fetch the username
@@ -826,8 +826,8 @@ def watched(
 
     Example:
         farmore watched
-        farmore watched octocat
-        farmore watched octocat --dest ./custom_watched
+        farmore watched miztizm
+        farmore watched miztizm --dest ./custom_watched
     """
     # Need to get the actual username first to determine default dest
     temp_config = Config(
@@ -927,7 +927,7 @@ def secrets(
 
     Example:
         farmore secrets miztizm/farmore
-        farmore secrets octocat/hello-world --format yaml
+        farmore secrets miztizm/hello-world --format yaml
         farmore secrets miztizm/farmore --dest ./custom_secrets.json
     """
     if format.lower() not in ["json", "yaml"]:
@@ -1130,7 +1130,7 @@ def repo(
 
     Example:
         farmore repo microsoft/vscode
-        farmore repo octocat/hello-world --include-issues --include-pulls
+        farmore repo miztizm/hello-world --include-issues --include-pulls
         farmore repo myorg/myrepo --all
         farmore repo python/cpython --dest ./my-backups --include-wikis
     """
@@ -1259,7 +1259,7 @@ def issues(
     "Issues are just TODOs that escaped into the wild." — schema.cx
 
     Example:
-        farmore issues octocat/hello-world
+        farmore issues miztizm/hello-world
         farmore issues miztizm/farmore --state open --include-comments
         farmore issues miztizm/farmore --dest ./my-issues.json --format yaml
     """
@@ -1376,7 +1376,7 @@ def pulls(
     "Pull requests: where code goes to be judged by its peers." — schema.cx
 
     Example:
-        farmore pulls octocat/hello-world
+        farmore pulls miztizm/hello-world
         farmore pulls miztizm/farmore --state open --include-comments
         farmore pulls miztizm/farmore --dest ./my-prs.json --format yaml
     """
@@ -1489,7 +1489,7 @@ def workflows(
     "Automation is just laziness with a good PR." — schema.cx
 
     Example:
-        farmore workflows octocat/hello-world
+        farmore workflows miztizm/hello-world
         farmore workflows miztizm/farmore --include-runs
         farmore workflows miztizm/farmore --dest ./my-workflows/
     """
@@ -1609,7 +1609,7 @@ def releases(
     "Releases are just commits with marketing." — schema.cx
 
     Example:
-        farmore releases octocat/hello-world
+        farmore releases miztizm/hello-world
         farmore releases miztizm/farmore --download-assets
         farmore releases miztizm/farmore --dest ./my-releases/
     """
@@ -1744,7 +1744,7 @@ def wiki(
     "Wikis are where documentation goes to die. But at least it's organized." — schema.cx
 
     Example:
-        farmore wiki octocat/hello-world
+        farmore wiki miztizm/hello-world
         farmore wiki miztizm/farmore --dest ./my-wiki/
     """
     # Parse owner/repo
