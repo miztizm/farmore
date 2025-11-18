@@ -44,29 +44,125 @@
 ## 📦 Installation
 
 ### Requirements
-- Python 3.10 or higher
+
+**Python Version:** 3.10 or higher is required.
+
+**Additional Requirements:**
 - Git installed and available in PATH
 - GitHub Personal Access Token (for private repos and higher rate limits)
 
-### From Source
+---
+
+### 🎯 From PyPI (Recommended)
+
+The easiest way to install Farmore is from the Python Package Index (PyPI):
+
+```bash
+pip install farmore
+```
+
+This is the recommended method for end users. Once installed, the `farmore` command will be available globally.
+
+**Verify installation:**
+```bash
+farmore --version
+farmore --help
+```
+
+---
+
+### 🧪 From TestPyPI (Pre-release Testing)
+
+To test pre-release versions before they're published to PyPI:
+
+```bash
+pip install --index-url https://test.pypi.org/simple/ farmore
+```
+
+**When to use this:**
+- Testing new features before official release
+- Helping with beta testing
+- Verifying bug fixes in development versions
+
+**Note:** TestPyPI packages may not have all dependencies available. You might need to install dependencies from regular PyPI separately.
+
+---
+
+### 📥 From GitHub Releases (Specific Versions)
+
+Download a specific version from the [GitHub Releases page](https://github.com/miztizm/farmore/releases):
+
+1. **Download the `.whl` file** from the release you want (e.g., `farmore-0.3.0-py3-none-any.whl`)
+2. **Install the downloaded file:**
+
+```bash
+pip install farmore-0.3.0-py3-none-any.whl
+```
+
+**When to use this:**
+- You need a specific version
+- You want to verify package integrity
+- You're installing in an offline environment (download first, install later)
+
+**Alternative - Source distribution:**
+```bash
+# Download the .tar.gz file instead
+pip install farmore-0.3.0.tar.gz
+```
+
+---
+
+### 🔧 From Source (Development)
+
+For developers who want to contribute or modify the code:
 
 ```bash
 # Clone the repository
 git clone https://github.com/miztizm/farmore.git
 cd farmore
 
-# Install in development mode
+# Install in editable mode (changes to code take effect immediately)
 pip install -e .
 
-# Or install with development dependencies
+# Or install with development dependencies (recommended for contributors)
 pip install -e ".[dev]"
 ```
 
-### Verify Installation
+**Development dependencies include:**
+- `pytest` - Testing framework
+- `pytest-cov` - Code coverage
+- `ruff` - Linting and formatting
+- `mypy` - Type checking
+- Additional testing utilities
 
+**Verify installation:**
 ```bash
 farmore --version
 farmore --help
+```
+
+---
+
+### 🔄 Upgrading
+
+To upgrade to the latest version:
+
+```bash
+# From PyPI
+pip install --upgrade farmore
+
+# From TestPyPI
+pip install --upgrade --index-url https://test.pypi.org/simple/ farmore
+```
+
+---
+
+### 🗑️ Uninstalling
+
+To remove Farmore:
+
+```bash
+pip uninstall farmore
 ```
 
 ---
