@@ -410,7 +410,7 @@ Contributions welcome! Please:
 ## 💬 Support
 
 - 🐛 **Issues:** https://github.com/miztizm/farmore/issues
-- 💡 **Discussions:** https://github.com/miztizm/farmore/discussions
+- 📩 **Email:** github@miztizm.com
 
 ---
 
