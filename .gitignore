@@ -1,0 +1,57 @@
+# Kluster
+.github/instructions/kluster-code-verify.instructions.md
+.kluster
+
+# Environment variables - NEVER commit tokens!
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Type checking and linting
+.mypy_cache/
+.ruff_cache/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data and backups
+backups/
+profile.json
+
+# Internal documentation (not for public GitHub)
+docs/
+
+# OS
+.DS_Store
+Thumbs.db

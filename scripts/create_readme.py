@@ -1,4 +1,7 @@
-# 🥔 Farmore
+#!/usr/bin/env python3
+"""Script to create comprehensive standalone README.md for Farmore v0.3.0 public GitHub release"""
+
+README_CONTENT = r"""# 🥔 Farmore
 
 > _"Mirror every repo you own — in one command."_
 
@@ -77,13 +80,13 @@ farmore --help
 
 ```bash
 # Backup all repos for a user
-farmore user miztizm
+farmore user octocat
 
 # Backup a single repository
 farmore repo microsoft/vscode
 
 # Backup with issues and pull requests
-farmore repo miztizm/hello-world --include-issues --include-pulls
+farmore repo octocat/hello-world --include-issues --include-pulls
 
 # Backup everything for a repository
 farmore repo python/cpython --all
@@ -93,7 +96,7 @@ farmore org github --include-issues --include-pulls
 
 # With authentication (recommended)
 export GITHUB_TOKEN=ghp_your_token_here
-farmore user miztizm
+farmore user octocat
 ```
 
 _"They say privacy is dead. Prove them wrong. Use a token."_ — schema.cx
@@ -161,7 +164,7 @@ Farmore provides **13 commands** organized into 4 categories:
 ### 🔄 Repository Backup
 
 #### `farmore user <username>`
-Backup all private and public repositories for a GitHub user.
+Backup all repositories for a GitHub user.
 
 ```bash
 # Backup all repos
@@ -171,10 +174,10 @@ farmore user miztizm
 farmore user miztizm --include-issues --include-pulls
 
 # Filter by visibility
-farmore user miztizm --visibility public
+farmore user octocat --visibility public
 
 # Dry run
-farmore user miztizm --dry-run
+farmore user octocat --dry-run
 ```
 
 **Key Options:** `--visibility`, `--include-forks`, `--include-archived`, `--include-issues`, `--include-pulls`, `--include-workflows`, `--include-releases`, `--include-wikis`, `--max-workers`, `--dry-run`
@@ -207,7 +210,7 @@ Export issues to JSON/YAML.
 
 ```bash
 farmore issues microsoft/vscode
-farmore issues miztizm/hello-world --state open --include-comments
+farmore issues octocat/hello-world --state open --include-comments
 ```
 
 **Options:** `--format [json|yaml]`, `--state [all|open|closed]`, `--include-comments`
@@ -217,7 +220,7 @@ Export pull requests to JSON/YAML.
 
 ```bash
 farmore pulls microsoft/vscode
-farmore pulls miztizm/hello-world --state open --include-comments
+farmore pulls octocat/hello-world --state open --include-comments
 ```
 
 **Options:** `--format [json|yaml]`, `--state [all|open|closed]`, `--include-comments`
@@ -258,7 +261,7 @@ Export user profile.
 
 ```bash
 farmore profile              # Your profile
-farmore profile miztizm      # Another user's profile
+farmore profile octocat      # Another user's profile
 ```
 
 **Options:** `--format [json|yaml]`
@@ -268,7 +271,7 @@ Mirror starred repositories.
 
 ```bash
 farmore starred              # Your starred repos
-farmore starred miztizm      # Another user's starred repos
+farmore starred octocat      # Another user's starred repos
 ```
 
 #### `farmore watched [username]`
@@ -425,3 +428,11 @@ Built with [Typer](https://typer.tiangolo.com/), [Rich](https://rich.readthedocs
 _"The cloud is just someone else's computer. Your backups? Those should be yours."_ — schema.cx
 
 **Made with 🥔 by miztizm @ schema.cx**
+"""
+
+if __name__ == "__main__":
+    import pathlib
+    readme_path = pathlib.Path(__file__).parent.parent / "README.md"
+    readme_path.write_text(README_CONTENT, encoding="utf-8")
+    print(f"✅ Created {readme_path}")
+
