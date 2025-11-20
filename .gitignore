@@ -50,6 +50,8 @@ htmlcov/
 backups/
 profile.json
 search_results/
+search-results/
+smsbomber/
 
 # Internal documentation (not for public GitHub)
 docs/
