@@ -5,6 +5,28 @@ All notable changes to Farmore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2025-11-20
+
+### Changed
+- **Repository cleanup** - Removed accidentally committed external repository references from git history
+
+## [0.3.3] - 2024-01-XX
+
+### Added
+- **Repository search functionality** - New `search_repositories()` method in GitHubAPIClient
+  - Search GitHub repositories using the Search API
+  - Filter by programming language
+  - Filter by minimum stars
+  - Custom sorting options (stars, forks, updated, best-match)
+  - Configurable result limits (1-100)
+- **Comprehensive test coverage** - Added tests for search functionality
+  - Basic search
+  - Language filters
+  - Star filters
+  - Sorting options
+  - Empty results handling
+  - Validation and error handling
+
 ## [0.3.0] - 2024-01-XX
 
 ### Added
