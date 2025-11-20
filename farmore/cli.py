@@ -115,6 +115,50 @@ def get_default_wiki_dest(owner: str, repo: str) -> Path:
     return Path("backups") / owner / "data" / "wikis" / f"{owner}_{repo}.wiki"
 
 
+def sanitize_query_for_dirname(query: str, max_length: int = 50) -> str:
+    """
+    Sanitize a search query string for use as a directory name.
+
+    Args:
+        query: The search query string
+        max_length: Maximum length of the sanitized string (default: 50)
+
+    Returns:
+        Sanitized string safe for use as a directory name
+
+    Examples:
+        "machine learning" -> "machine-learning"
+        "Python CLI tools!" -> "python-cli-tools"
+        "awesome-python" -> "awesome-python"
+    """
+    import re
+
+    # Convert to lowercase
+    sanitized = query.lower()
+
+    # Replace spaces with hyphens
+    sanitized = sanitized.replace(" ", "-")
+
+    # Remove special characters (keep only alphanumeric, hyphens, and underscores)
+    sanitized = re.sub(r"[^a-z0-9\-_]", "", sanitized)
+
+    # Replace multiple consecutive hyphens with a single hyphen
+    sanitized = re.sub(r"-+", "-", sanitized)
+
+    # Remove leading/trailing hyphens
+    sanitized = sanitized.strip("-")
+
+    # Truncate to max length
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length].rstrip("-")
+
+    # Fallback if empty
+    if not sanitized:
+        sanitized = "search-results"
+
+    return sanitized
+
+
 def export_repository_data(
     client: GitHubAPIClient,
     repos: list,
@@ -1869,6 +1913,234 @@ def wiki(
 
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")
+        sys.exit(1)
+
+
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="Search keyword or phrase (e.g., 'smsbomber', 'machine learning')"),
+    limit: int = typer.Option(10, "--limit", "-l", min=1, max=100, help="Maximum number of repositories to clone (1-100)"),
+    language: str | None = typer.Option(None, "--language", help="Filter by programming language (e.g., 'python', 'javascript')"),
+    min_stars: int | None = typer.Option(None, "--min-stars", help="Minimum number of stars required"),
+    sort: str = typer.Option(
+        "best-match",
+        "--sort",
+        help="Sort order: 'stars', 'forks', 'updated', or 'best-match'",
+        case_sensitive=False,
+    ),
+    order: str = typer.Option("desc", "--order", help="Sort direction: 'asc' or 'desc'", case_sensitive=False),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt and proceed automatically"),
+    output_dir: Path | None = typer.Option(None, "--output-dir", "-o", help="Custom output directory for cloned repositories"),
+    flat_structure: bool = typer.Option(False, "--flat-structure", help="Clone repos directly without owner subdirectories"),
+    token: str | None = typer.Option(None, "--token", "-t", envvar="GITHUB_TOKEN", help="GitHub personal access token"),
+    max_workers: int = typer.Option(4, "--workers", "-w", help="Number of parallel workers for cloning"),
+) -> None:
+    """
+    🔍 Search for GitHub repositories and clone/mirror the results.
+
+    Search GitHub repositories by keyword and clone the matching results to a local directory.
+    Supports filtering by language, stars, and sorting options.
+
+    Examples:
+
+        # Search for "smsbomber" and clone top 10 results
+        farmore search "smsbomber" --limit 10
+
+        # Search with multiple filters
+        farmore search "machine learning" --language python --min-stars 1000 --limit 20
+
+        # Search and auto-confirm (skip prompt)
+        farmore search "react components" --limit 5 --yes
+
+        # Search with custom output directory
+        farmore search "awesome-python" --output-dir ./my-collections --limit 15
+
+        # Search with flat structure (no owner subdirectories)
+        farmore search "cli tools" --flat-structure --limit 10
+    """
+    # Validate sort option
+    valid_sorts = ["best-match", "stars", "forks", "updated"]
+    if sort.lower() not in valid_sorts:
+        print_error(f"Invalid sort option: {sort}. Must be one of: {', '.join(valid_sorts)}")
+        sys.exit(1)
+
+    # Validate order option
+    valid_orders = ["asc", "desc"]
+    if order.lower() not in valid_orders:
+        print_error(f"Invalid order option: {order}. Must be one of: {', '.join(valid_orders)}")
+        sys.exit(1)
+
+    # Determine output directory
+    if output_dir is None:
+        sanitized_query = sanitize_query_for_dirname(query)
+        output_dir = Path("search-results") / sanitized_query
+    else:
+        output_dir = Path(output_dir)
+
+    # Create a temporary config for API client
+    temp_config = Config(
+        target_type=TargetType.USER,
+        target_name="search",  # Placeholder, not used for search
+        dest=output_dir,
+        token=token,
+        max_workers=max_workers,
+    )
+
+    try:
+        # Initialize GitHub API client
+        client = GitHubAPIClient(temp_config)
+
+        # Perform search
+        repos = client.search_repositories(
+            query=query,
+            language=language,
+            min_stars=min_stars,
+            sort=sort.lower(),
+            order=order.lower(),
+            limit=limit,
+        )
+
+        # Check if we got any results
+        if not repos:
+            console.print("\n[yellow]No repositories to clone.[/yellow]")
+            sys.exit(0)
+
+        # Display results in a Rich table
+        from .rich_utils import create_data_table
+
+        table = create_data_table(title=f"🔍 Search Results: '{query}'", show_lines=False)
+        table.add_column("Repository", style="bold blue", no_wrap=True)
+        table.add_column("Owner", style="cyan")
+        table.add_column("⭐ Stars", justify="right", style="yellow")
+        table.add_column("🍴 Forks", justify="right", style="green")
+        table.add_column("Language", style="magenta")
+        table.add_column("Description", style="dim", max_width=50)
+
+        # We need to fetch additional metadata for stars/forks/description
+        # For now, we'll make individual API calls (could be optimized)
+        console.print("\n[cyan]📊 Fetching repository details...[/cyan]")
+
+        for repo in repos:
+            # Get full repository details
+            try:
+                full_repo_data = client.session.get(
+                    f"{client.BASE_URL}/repos/{repo.full_name}",
+                    timeout=10,
+                ).json()
+
+                stars = full_repo_data.get("stargazers_count", 0)
+                forks = full_repo_data.get("forks_count", 0)
+                lang = full_repo_data.get("language") or "N/A"
+                desc = full_repo_data.get("description") or ""
+
+                # Truncate description
+                if len(desc) > 50:
+                    desc = desc[:47] + "..."
+
+                table.add_row(
+                    repo.name,
+                    repo.owner,
+                    f"{stars:,}",
+                    f"{forks:,}",
+                    lang,
+                    desc,
+                )
+            except Exception:
+                # If we can't fetch details, show basic info
+                table.add_row(repo.name, repo.owner, "?", "?", "?", "")
+
+        console.print(table)
+
+        # Show summary
+        console.print(f"\n[cyan]📦 Found {len(repos)} repositories to clone[/cyan]")
+        console.print(f"[dim]Output directory: {output_dir.absolute()}[/dim]")
+
+        # Confirmation prompt (unless --yes flag is provided)
+        if not yes:
+            proceed = typer.confirm(f"\nClone {len(repos)} repositories to {output_dir}?", default=False)
+            if not proceed:
+                console.print("\n[yellow]Operation cancelled.[/yellow]")
+                sys.exit(0)
+
+        # Create output directory
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Handle flat structure by modifying repository local_path
+        if flat_structure:
+            # Check for naming conflicts
+            repo_names = [repo.name for repo in repos]
+            duplicates = [name for name in repo_names if repo_names.count(name) > 1]
+
+            if duplicates:
+                console.print(
+                    f"\n[yellow]⚠️  Warning: Found {len(set(duplicates))} repository name(s) "
+                    f"with conflicts in flat structure mode:[/yellow]"
+                )
+                for dup_name in set(duplicates):
+                    owners = [repo.owner for repo in repos if repo.name == dup_name]
+                    console.print(f"  [dim]• {dup_name}: {', '.join(owners)}[/dim]")
+
+                console.print(
+                    "\n[yellow]Repositories with duplicate names will have their owner "
+                    "appended (e.g., 'repo-owner')[/yellow]"
+                )
+
+            # Create modified repositories with flat paths
+            from dataclasses import replace
+            modified_repos = []
+            name_counts: dict[str, int] = {}
+
+            for repo in repos:
+                # Track how many times we've seen this repo name
+                if repo.name in name_counts:
+                    name_counts[repo.name] += 1
+                    # Append owner to make it unique
+                    modified_name = f"{repo.name}-{repo.owner}"
+                else:
+                    name_counts[repo.name] = 1
+                    # Check if this name will have duplicates
+                    if repo.name in duplicates:
+                        modified_name = f"{repo.name}-{repo.owner}"
+                    else:
+                        modified_name = repo.name
+
+                # Create a modified repository with updated name for flat structure
+                modified_repo = replace(repo, name=modified_name, owner="")
+                modified_repos.append(modified_repo)
+
+            repos = modified_repos
+
+        # Create a proper config for mirroring
+        mirror_config = Config(
+            target_type=TargetType.USER,
+            target_name="search",  # Placeholder
+            dest=output_dir,
+            token=token,
+            max_workers=max_workers,
+            include_forks=True,  # Include all search results
+            include_archived=True,  # Include all search results
+        )
+
+        # Use MirrorOrchestrator to clone the repositories
+        console.print(f"\n[cyan]🚀 Starting clone operation...[/cyan]")
+
+        orchestrator = MirrorOrchestrator(mirror_config)
+        summary = orchestrator.run(repos=repos)
+
+        # Display final summary (already handled by MirrorOrchestrator)
+        if summary.has_failures:
+            console.print(f"\n[yellow]⚠️  Completed with {summary.failed} failures[/yellow]")
+            sys.exit(1)
+        else:
+            console.print(f"\n[green]✅ All repositories cloned successfully![/green]")
+
+    except ValueError as e:
+        print_error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        print_error(f"Search failed: {e}")
+        if "--debug" in sys.argv:
+            traceback.print_exc()
         sys.exit(1)
 
 

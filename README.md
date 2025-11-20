@@ -4,7 +4,7 @@
 
 **Farmore** is a comprehensive Python CLI tool for backing up GitHub repositories and their associated data. Clone repositories, export issues, download releases, backup wikis, and more — all with a single command.
 
-**Version:** 0.3.2
+**Version:** 0.3.3
 **License:** MIT
 **Python:** 3.10+
 
@@ -15,6 +15,7 @@
 ### 🔄 Repository Management
 - **Bulk backups** - Clone all repos for a user or organization in one command
 - **Single repo backups** - Backup individual repositories with the `repo` command
+- **Repository search** - Search GitHub and clone matching repositories by keyword
 - **Smart updates** - Automatically pulls updates for existing repositories
 - **Parallel processing** - Fast backups with configurable worker threads
 - **SSH/HTTPS support** - Tries SSH first, falls back to HTTPS with token
@@ -176,6 +177,9 @@ farmore user miztizm
 # Backup a single repository
 farmore repo microsoft/vscode
 
+# Search and clone repositories by keyword
+farmore search "nuxt laravel" --limit 10
+
 # Backup with issues and pull requests
 farmore repo miztizm/hello-world --include-issues --include-pulls
 
@@ -250,7 +254,7 @@ echo "GITHUB_TOKEN=ghp_your_token_here" > .env
 
 ## 📚 Commands
 
-Farmore provides **13 commands** organized into 4 categories:
+Farmore provides **14 commands** organized into 4 categories:
 
 ### 🔄 Repository Backup
 
@@ -291,6 +295,69 @@ farmore repo python/cpython --all
 ```
 
 **Key Options:** `--include-issues`, `--include-pulls`, `--include-workflows`, `--include-releases`, `--include-wikis`, `--all`
+
+#### `farmore search <query>` 🆕
+Search GitHub repositories by keyword and clone matching results.
+
+```bash
+# Basic search - clone top 10 results
+farmore search "smsbomber"
+
+# Search with filters
+farmore search "machine learning" --language python --min-stars 1000 --limit 20
+
+# Search and auto-confirm (skip prompt)
+farmore search "react components" --limit 5 --yes
+
+# Custom output directory
+farmore search "awesome-python" --output-dir ./my-collections --limit 15
+
+# Sort by stars (descending)
+farmore search "cli tools" --language go --sort stars --order desc --limit 25
+
+# Flat structure (no owner subdirectories)
+farmore search "react hooks" --flat-structure --limit 10
+```
+
+**Key Options:**
+- `--limit` (1-100): Maximum repositories to clone (default: 10)
+- `--language`: Filter by programming language (e.g., "python", "javascript", "go")
+- `--min-stars`: Minimum number of stars required
+- `--sort`: Sort order - "best-match" (default), "stars", "forks", or "updated"
+- `--order`: Sort direction - "desc" (default) or "asc"
+- `--yes` / `-y`: Skip confirmation prompt
+- `--output-dir`: Custom output directory (default: `./search-results/<query>/`)
+- `--flat-structure`: Clone repos directly without owner subdirectories
+- `--workers`: Number of parallel workers for cloning (default: 4)
+
+**Output Structure (Default):**
+```
+search-results/
+└── <sanitized-query>/
+    ├── <owner1>/
+    │   └── <repo1>/
+    ├── <owner2>/
+    │   └── <repo2>/
+    └── <owner3>/
+        └── <repo3>/
+```
+
+**Output Structure (Flat - with `--flat-structure`):**
+```
+search-results/
+└── <sanitized-query>/
+    ├── <repo1>/
+    ├── <repo2>/
+    └── <repo3>/
+```
+
+**Note:** When using `--flat-structure`, repositories with duplicate names will have their owner appended (e.g., `repo-owner`) to avoid conflicts.
+
+**Rate Limits:**
+- Search API: 30 requests/minute (authenticated users)
+- Unauthenticated: 10 requests/minute
+
+**Note:** The search command uses GitHub's search API with support for advanced search qualifiers. You can also use GitHub's native search syntax directly in the query (e.g., `"language:python stars:>1000"`).
 
 ---
 
