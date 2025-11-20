@@ -125,7 +125,7 @@ def test_flat_structure_local_path() -> None:
     )
 
     # With empty owner, local_path should be just the repo name
-    assert repo.local_path == "/myrepo"
+    assert repo.local_path == "myrepo"
 
 
 def test_flat_structure_multiple_duplicates() -> None:

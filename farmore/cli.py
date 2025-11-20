@@ -2119,6 +2119,7 @@ def search(
             max_workers=max_workers,
             include_forks=True,  # Include all search results
             include_archived=True,  # Include all search results
+            disable_categorization=True,  # Disable category subdirectories for search results
         )
 
         # Use MirrorOrchestrator to clone the repositories

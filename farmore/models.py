@@ -57,7 +57,11 @@ class Repository:
     @property
     def local_path(self) -> str:
         """Get the local path component for this repo (owner/name)."""
-        return f"{self.owner}/{self.name}"
+        if self.owner:
+            return f"{self.owner}/{self.name}"
+        else:
+            # Flat structure: just the repo name
+            return self.name
 
     @property
     def is_org_repo(self) -> bool:
@@ -98,6 +102,7 @@ class Config:
 
     # Repository categorization (for organizing backups by type)
     repository_category: RepositoryCategory | None = None
+    disable_categorization: bool = False  # Disable category subdirectories (for search results)
 
     def __post_init__(self) -> None:
         """Validate and normalize configuration."""
@@ -113,14 +118,19 @@ class Config:
         Get the categorized path for a repository based on its attributes.
 
         Categorization priority:
-        1. If repository_category is set (starred/watched), use that
-        2. If repo is from an organization, use organizations/<org-name>
-        3. If repo is a fork, use forks
-        4. Otherwise, use private or public based on visibility
+        1. If disable_categorization is True, return just the repo local_path
+        2. If repository_category is set (starred/watched), use that
+        3. If repo is from an organization, use organizations/<org-name>
+        4. If repo is a fork, use forks
+        5. Otherwise, use private or public based on visibility
 
         Returns:
             Path relative to dest that includes category subdirectory
         """
+        # If categorization is disabled (e.g., for search results), return just the local path
+        if self.disable_categorization:
+            return Path(repo.local_path)
+
         # If a specific category is set (e.g., starred, watched), use it
         if self.repository_category:
             return Path("repos") / self.repository_category.value / repo.local_path

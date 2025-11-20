@@ -48,6 +48,7 @@ htmlcov/
 # Data and backups
 backups/
 profile.json
+search_results/
 
 # Internal documentation (not for public GitHub)
 docs/
