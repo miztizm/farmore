@@ -24,6 +24,7 @@ from .models import (
     Workflow,
     WorkflowRun,
 )
+from .rich_utils import console, print_info, print_panel, print_warning
 
 
 class GitHubAPIError(Exception):
@@ -137,22 +138,22 @@ class GitHubAPIClient:
                 # This endpoint returns both public AND private repos
                 endpoint = "/user/repos"
                 params = {"type": "all"}
-                print(f"\n🔍 Fetching YOUR repositories (authenticated as {authenticated_user})")
-                print(f"   Using /user/repos endpoint for public + private access")
+                console.print(f"\n[cyan]🔍 Fetching YOUR repositories (authenticated as {authenticated_user})[/cyan]")
+                console.print(f"   [dim]Using /user/repos endpoint for public + private access[/dim]")
             else:
                 # Use /users/{username}/repos for other users (public only)
                 endpoint = f"/users/{self.config.target_name}/repos"
                 params = {"type": "all"}
                 if authenticated_user:
-                    print(f"\n🔍 Fetching repositories for user '{self.config.target_name}' (you are {authenticated_user})")
-                    print(f"   ⚠️  Can only access PUBLIC repos for other users")
+                    console.print(f"\n[cyan]🔍 Fetching repositories for user '{self.config.target_name}' (you are {authenticated_user})[/cyan]")
+                    print_warning("Can only access PUBLIC repos for other users", prefix="⚠️")
                 else:
-                    print(f"\n🔍 Fetching repositories without authentication (public only)")
+                    console.print(f"\n[cyan]🔍 Fetching repositories without authentication (public only)[/cyan]")
         else:  # ORG
             endpoint = f"/orgs/{self.config.target_name}/repos"
             # Add type=all parameter to get all org repos (public + private)
             params = {"type": "all"}
-            print(f"\n🔍 Fetching repositories for organization '{self.config.target_name}'")
+            console.print(f"\n[cyan]🔍 Fetching repositories for organization '{self.config.target_name}'[/cyan]")
 
         repos: list[Repository] = []
         url: str | None = f"{self.BASE_URL}{endpoint}"
@@ -169,7 +170,7 @@ class GitHubAPIClient:
             # Debug: Show how many repos we got and their visibility
             public_count = sum(1 for r in page_repos if not r.private)
             private_count = sum(1 for r in page_repos if r.private)
-            print(f"   📦 Page: {len(page_repos)} repos ({public_count} public, {private_count} private)")
+            console.print(f"   [dim]📦 Page: {len(page_repos)} repos ({public_count} public, {private_count} private)[/dim]")
 
             repos.extend(page_repos)
 
@@ -243,8 +244,8 @@ class GitHubAPIClient:
                     # Retry with exponential backoff if we have retries left
                     if retry_count < max_retries:
                         wait_time = 2**retry_count  # Exponential backoff: 1s, 2s, 4s
-                        print(
-                            f"\n⏳ Rate limit hit. Retrying in {wait_time} seconds... (attempt {retry_count + 1}/{max_retries})"
+                        console.print(
+                            f"\n[yellow]⏳ Rate limit hit. Retrying in {wait_time} seconds... (attempt {retry_count + 1}/{max_retries})[/yellow]"
                         )
                         time.sleep(wait_time)
                         return self._make_request(url, retry_count + 1, initial_params)
@@ -274,13 +275,16 @@ class GitHubAPIClient:
         except (ValueError, OSError):
             reset_str = "unknown"
 
-        auth_status = "✓ Authenticated" if self.config.token else "⚠ Unauthenticated"
+        auth_status = "[green]✓ Authenticated[/green]" if self.config.token else "[yellow]⚠ Unauthenticated[/yellow]"
 
-        print(f"\n📊 GitHub API Rate Limit: {auth_status}")
-        print(f"   Limit: {limit}/hour | Remaining: {remaining} | Resets at: {reset_str}")
+        # Create rate limit info panel
+        info_text = f"Status: {auth_status}\n"
+        info_text += f"Limit: [cyan]{limit}[/cyan]/hour | Remaining: [cyan]{remaining}[/cyan] | Resets at: [cyan]{reset_str}[/cyan]"
 
         if not self.config.token:
-            print("   💡 Tip: Use GITHUB_TOKEN for 5,000 requests/hour (vs 60 unauthenticated)")
+            info_text += "\n\n[dim]💡 Tip: Use GITHUB_TOKEN for 5,000 requests/hour (vs 60 unauthenticated)[/dim]"
+
+        print_panel(info_text, title="📊 GitHub API Rate Limit", style="cyan")
 
     def _get_next_page_url(self, response: requests.Response) -> str | None:
         """
@@ -338,7 +342,7 @@ class GitHubAPIClient:
             elif self.config.visibility == Visibility.PRIVATE:
                 filtered = [r for r in filtered if r.private]
             if len(filtered) < before:
-                print(f"   🔍 Filtered by visibility: {before} → {len(filtered)}")
+                console.print(f"   [dim]🔍 Filtered by visibility: {before} → {len(filtered)}[/dim]")
 
         # Filter forks
         if not self.config.include_forks:
@@ -346,7 +350,7 @@ class GitHubAPIClient:
             forks = [r for r in filtered if r.fork]
             filtered = [r for r in filtered if not r.fork]
             if len(forks) > 0:
-                print(f"   🔍 Filtered out {len(forks)} forks (use --include-forks to include them)")
+                console.print(f"   [dim]🔍 Filtered out {len(forks)} forks (use --include-forks to include them)[/dim]")
 
         # Filter archived
         if not self.config.include_archived:
@@ -354,7 +358,7 @@ class GitHubAPIClient:
             archived = [r for r in filtered if r.archived]
             filtered = [r for r in filtered if not r.archived]
             if len(archived) > 0:
-                print(f"   🔍 Filtered out {len(archived)} archived repos (use --include-archived to include them)")
+                console.print(f"   [dim]🔍 Filtered out {len(archived)} archived repos (use --include-archived to include them)[/dim]")
 
         # Filter organization repositories
         if self.config.exclude_org_repos and self._authenticated_username:
@@ -363,10 +367,10 @@ class GitHubAPIClient:
             org_repos = [r for r in filtered if r.owner.lower() != self._authenticated_username.lower()]
             filtered = [r for r in filtered if r.owner.lower() == self._authenticated_username.lower()]
             if len(org_repos) > 0:
-                print(f"   🔍 Filtered out {len(org_repos)} organization repos (remove --exclude-orgs to include them)")
+                console.print(f"   [dim]🔍 Filtered out {len(org_repos)} organization repos (remove --exclude-orgs to include them)[/dim]")
 
         if len(filtered) < initial_count:
-            print(f"   📊 Total after filtering: {initial_count} → {len(filtered)} repositories")
+            console.print(f"   [cyan]📊 Total after filtering: {initial_count} → {len(filtered)} repositories[/cyan]")
 
         return filtered
 
@@ -379,10 +383,10 @@ class GitHubAPIClient:
         """
         if username:
             endpoint = f"/users/{username}"
-            print(f"\n👤 Fetching profile for user: {username}")
+            console.print(f"\n[cyan]👤 Fetching profile for user: {username}[/cyan]")
         else:
             endpoint = "/user"
-            print(f"\n👤 Fetching YOUR profile (authenticated user)")
+            console.print(f"\n[cyan]👤 Fetching YOUR profile (authenticated user)[/cyan]")
 
         response = self._make_request(f"{self.BASE_URL}{endpoint}")
         data = response.json()
@@ -416,11 +420,11 @@ class GitHubAPIClient:
         """
         if username:
             endpoint = f"/users/{username}/starred"
-            print(f"\n⭐ Fetching starred repositories for user: {username}")
+            console.print(f"\n[cyan]⭐ Fetching starred repositories for user: {username}[/cyan]")
         else:
             endpoint = "/user/starred"
             authenticated_user = self._get_authenticated_user()
-            print(f"\n⭐ Fetching YOUR starred repositories (authenticated as {authenticated_user})")
+            console.print(f"\n[cyan]⭐ Fetching YOUR starred repositories (authenticated as {authenticated_user})[/cyan]")
 
         all_repos = []
         next_url = f"{self.BASE_URL}{endpoint}"
@@ -436,7 +440,7 @@ class GitHubAPIClient:
             next_url = self._get_next_page_url(response)
             params = None  # Only use params on first request
 
-        print(f"   ✓ Found {len(all_repos)} starred repositories")
+        console.print(f"   [green]✓ Found {len(all_repos)} starred repositories[/green]")
         return all_repos
 
     def get_watched_repositories(self, username: str | None = None) -> list[Repository]:
@@ -448,11 +452,11 @@ class GitHubAPIClient:
         """
         if username:
             endpoint = f"/users/{username}/subscriptions"
-            print(f"\n👁 Fetching watched repositories for user: {username}")
+            console.print(f"\n[cyan]👁 Fetching watched repositories for user: {username}[/cyan]")
         else:
             endpoint = "/user/subscriptions"
             authenticated_user = self._get_authenticated_user()
-            print(f"\n👁 Fetching YOUR watched repositories (authenticated as {authenticated_user})")
+            console.print(f"\n[cyan]👁 Fetching YOUR watched repositories (authenticated as {authenticated_user})[/cyan]")
 
         all_repos = []
         next_url = f"{self.BASE_URL}{endpoint}"
@@ -468,7 +472,7 @@ class GitHubAPIClient:
             next_url = self._get_next_page_url(response)
             params = None  # Only use params on first request
 
-        print(f"   ✓ Found {len(all_repos)} watched repositories")
+        console.print(f"   [green]✓ Found {len(all_repos)} watched repositories[/green]")
         return all_repos
 
     def get_repository_secrets(self, owner: str, repo: str) -> list[RepositorySecret]:
@@ -478,8 +482,8 @@ class GitHubAPIClient:
         "Secrets are meant to be kept. But their names? Those we can share." — schema.cx
         """
         endpoint = f"/repos/{owner}/{repo}/actions/secrets"
-        print(f"\n🔐 Fetching secrets for repository: {owner}/{repo}")
-        print(f"   ⚠️  Note: GitHub API only returns secret names, not values")
+        console.print(f"\n[cyan]🔐 Fetching secrets for repository: {owner}/{repo}[/cyan]")
+        print_warning("Note: GitHub API only returns secret names, not values", prefix="⚠️")
 
         try:
             response = self._make_request(f"{self.BASE_URL}{endpoint}")
@@ -494,11 +498,11 @@ class GitHubAPIClient:
                 )
                 secrets.append(secret)
 
-            print(f"   ✓ Found {len(secrets)} secrets")
+            console.print(f"   [green]✓ Found {len(secrets)} secrets[/green]")
             return secrets
         except GitHubAPIError as e:
             if "404" in str(e):
-                print(f"   ⚠️  Repository not found or no access to secrets")
+                print_warning("Repository not found or no access to secrets", prefix="⚠️")
                 return []
             raise
 
@@ -509,12 +513,12 @@ class GitHubAPIClient:
         "Deletion is permanent. There's no undo button in the cloud." — schema.cx
         """
         endpoint = f"/repos/{owner}/{repo}"
-        print(f"\n🗑️  Deleting repository: {owner}/{repo}")
+        console.print(f"\n[red]🗑️  Deleting repository: {owner}/{repo}[/red]")
 
         try:
             response = self.session.delete(f"{self.BASE_URL}{endpoint}")
             response.raise_for_status()
-            print(f"   ✓ Repository deleted successfully")
+            console.print(f"   [green]✓ Repository deleted successfully[/green]")
             return True
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 403:
@@ -537,8 +541,8 @@ class GitHubAPIClient:
         "Issues are just TODOs that escaped into the wild." — schema.cx
         """
         endpoint = f"/repos/{owner}/{repo}/issues"
-        print(f"\n📋 Fetching issues for repository: {owner}/{repo}")
-        print(f"   State filter: {state}")
+        console.print(f"\n[cyan]📋 Fetching issues for repository: {owner}/{repo}[/cyan]")
+        console.print(f"   [dim]State filter: {state}[/dim]")
 
         all_issues = []
         params = {"state": state, "per_page": self.PER_PAGE, "page": 1}
@@ -578,7 +582,7 @@ class GitHubAPIClient:
 
                     all_issues.append(issue)
                 except Exception as e:
-                    print(f"   ⚠️  Skipping issue #{item.get('number', '?')}: {e}")
+                    print_warning(f"Skipping issue #{item.get('number', '?')}: {e}", prefix="⚠️")
                     continue
 
             # Check for next page
@@ -587,7 +591,7 @@ class GitHubAPIClient:
 
             params["page"] += 1
 
-        print(f"   ✓ Found {len(all_issues)} issues")
+        console.print(f"   [green]✓ Found {len(all_issues)} issues[/green]")
         return all_issues
 
     def _get_issue_comments(self, owner: str, repo: str, issue_number: int) -> list[dict]:
@@ -615,8 +619,8 @@ class GitHubAPIClient:
         "Pull requests: where code goes to be judged by its peers." — schema.cx
         """
         endpoint = f"/repos/{owner}/{repo}/pulls"
-        print(f"\n🔀 Fetching pull requests for repository: {owner}/{repo}")
-        print(f"   State filter: {state}")
+        console.print(f"\n[cyan]🔀 Fetching pull requests for repository: {owner}/{repo}[/cyan]")
+        console.print(f"   [dim]State filter: {state}[/dim]")
 
         all_prs = []
         params = {"state": state, "per_page": self.PER_PAGE, "page": 1}
@@ -666,7 +670,7 @@ class GitHubAPIClient:
 
             params["page"] += 1
 
-        print(f"   ✓ Found {len(all_prs)} pull requests")
+        console.print(f"   [green]✓ Found {len(all_prs)} pull requests[/green]")
         return all_prs
 
     def _get_pr_comments(self, owner: str, repo: str, pr_number: int) -> list[dict]:
@@ -694,7 +698,7 @@ class GitHubAPIClient:
         "Automation is just laziness with a good PR." — schema.cx
         """
         endpoint = f"/repos/{owner}/{repo}/actions/workflows"
-        print(f"\n⚙️  Fetching GitHub Actions workflows for: {owner}/{repo}")
+        console.print(f"\n[cyan]⚙️  Fetching GitHub Actions workflows for: {owner}/{repo}[/cyan]")
 
         try:
             response = self._make_request(f"{self.BASE_URL}{endpoint}")
@@ -722,12 +726,12 @@ class GitHubAPIClient:
                         {"path": item["path"], "name": item["name"], "content": file_content}
                     )
 
-            print(f"   ✓ Found {len(workflows)} workflows")
+            console.print(f"   [green]✓ Found {len(workflows)} workflows[/green]")
             return workflows, workflow_files
 
         except GitHubAPIError as e:
             if "404" in str(e):
-                print(f"   ⚠️  No workflows found or repository not accessible")
+                print_warning("No workflows found or repository not accessible", prefix="⚠️")
                 return [], []
             raise
 
@@ -755,7 +759,7 @@ class GitHubAPIClient:
         "Every run tells a story. Usually a story of failure." — schema.cx
         """
         endpoint = f"/repos/{owner}/{repo}/actions/runs"
-        print(f"\n📊 Fetching workflow runs for: {owner}/{repo} (limit: {limit})")
+        console.print(f"\n[cyan]📊 Fetching workflow runs for: {owner}/{repo} (limit: {limit})[/cyan]")
 
         try:
             response = self._make_request(
@@ -779,12 +783,12 @@ class GitHubAPIClient:
                 )
                 runs.append(run)
 
-            print(f"   ✓ Found {len(runs)} workflow runs")
+            console.print(f"   [green]✓ Found {len(runs)} workflow runs[/green]")
             return runs
 
         except GitHubAPIError as e:
             if "404" in str(e):
-                print(f"   ⚠️  No workflow runs found")
+                print_warning("No workflow runs found", prefix="⚠️")
                 return []
             raise
 
@@ -795,7 +799,7 @@ class GitHubAPIClient:
         "Releases are just commits with marketing." — schema.cx
         """
         endpoint = f"/repos/{owner}/{repo}/releases"
-        print(f"\n🚀 Fetching releases for repository: {owner}/{repo}")
+        console.print(f"\n[cyan]🚀 Fetching releases for repository: {owner}/{repo}[/cyan]")
 
         all_releases = []
         params = {"per_page": self.PER_PAGE, "page": 1}
@@ -850,12 +854,12 @@ class GitHubAPIClient:
                 params["page"] += 1
                 params = None
 
-            print(f"   ✓ Found {len(all_releases)} releases")
+            console.print(f"   [green]✓ Found {len(all_releases)} releases[/green]")
             return all_releases
 
         except GitHubAPIError as e:
             if "404" in str(e):
-                print(f"   ⚠️  No releases found or repository not accessible")
+                print_warning("No releases found or repository not accessible", prefix="⚠️")
                 return []
             raise
 

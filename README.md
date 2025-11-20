@@ -4,6 +4,7 @@
 
 **Farmore** is a comprehensive Python CLI tool for backing up GitHub repositories and their associated data. Clone repositories, export issues, download releases, backup wikis, and more — all with a single command.
 
+**Version:** 0.3.2
 **License:** MIT
 **Python:** 3.10+
 

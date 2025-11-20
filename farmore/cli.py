@@ -16,13 +16,21 @@ import requests
 import typer
 import yaml
 from dotenv import load_dotenv
-from rich.console import Console
 from rich.progress import Progress
+from rich.table import Table
 
 from .git_utils import GitOperations
 from .github_api import GitHubAPIClient
 from .mirror import MirrorOrchestrator
 from .models import Config, RepositoryCategory, TargetType, Visibility
+from .rich_utils import (
+    console,
+    print_error,
+    print_info,
+    print_panel,
+    print_success,
+    print_warning,
+)
 
 # Load environment variables from .env file if it exists
 # "Configuration is just organized secrets." — schema.cx
@@ -33,7 +41,6 @@ app = typer.Typer(
     help="🥔 Farmore - Mirror every repo you own — in one command.",
     add_completion=False,
 )
-console = Console()
 
 
 def get_default_user_dest(username: str) -> Path:
@@ -158,7 +165,7 @@ def export_repository_data(
                 }
                 with open(dest, "w") as f:
                     json.dump(issues_data, f, indent=2)
-                console.print(f"   ✓ Issues exported: {owner}/{repo_name} ({len(issues_list)} issues)")
+                console.print(f"   [green]✓ Issues exported: {owner}/{repo_name} ({len(issues_list)} issues)[/green]")
 
             # Export pull requests
             if include_pulls:
@@ -185,7 +192,7 @@ def export_repository_data(
                 }
                 with open(dest, "w") as f:
                     json.dump(prs_data, f, indent=2)
-                console.print(f"   ✓ Pull requests exported: {owner}/{repo_name} ({len(prs_list)} PRs)")
+                console.print(f"   [green]✓ Pull requests exported: {owner}/{repo_name} ({len(prs_list)} PRs)[/green]")
 
             # Export workflows
             if include_workflows:
@@ -207,7 +214,7 @@ def export_repository_data(
                     }
                     with open(dest / "metadata.json", "w") as f:
                         json.dump(metadata, f, indent=2)
-                    console.print(f"   ✓ Workflows exported: {owner}/{repo_name} ({len(workflows_list)} workflows)")
+                    console.print(f"   [green]✓ Workflows exported: {owner}/{repo_name} ({len(workflows_list)} workflows)[/green]")
 
             # Export releases
             if include_releases:
@@ -232,7 +239,7 @@ def export_repository_data(
                     }
                     with open(dest / "metadata.json", "w") as f:
                         json.dump(metadata, f, indent=2)
-                    console.print(f"   ✓ Releases exported: {owner}/{repo_name} ({len(releases_list)} releases)")
+                    console.print(f"   [green]✓ Releases exported: {owner}/{repo_name} ({len(releases_list)} releases)[/green]")
 
             # Backup wikis
             if include_wikis:
@@ -252,7 +259,7 @@ def export_repository_data(
                                 check=True,
                                 timeout=300,
                             )
-                            console.print(f"   ✓ Wiki cloned: {owner}/{repo_name}")
+                            console.print(f"   [green]✓ Wiki cloned: {owner}/{repo_name}[/green]")
                         except subprocess.CalledProcessError:
                             pass  # Silently skip if clone fails
                     else:
@@ -265,7 +272,7 @@ def export_repository_data(
                                 check=True,
                                 timeout=120,
                             )
-                            console.print(f"   ✓ Wiki updated: {owner}/{repo_name}")
+                            console.print(f"   [green]✓ Wiki updated: {owner}/{repo_name}[/green]")
                         except subprocess.CalledProcessError:
                             pass  # Silently skip if pull fails
 
@@ -651,10 +658,24 @@ def profile(
             with open(dest, "w", encoding="utf-8") as f:
                 yaml.dump(profile_dict, f, default_flow_style=False, allow_unicode=True)
 
-        console.print(f"\n✅ Profile exported to: {dest}")
-        console.print(f"   User: {user_profile.login} ({user_profile.name or 'No name'})")
-        console.print(f"   Public repos: {user_profile.public_repos}")
-        console.print(f"   Followers: {user_profile.followers} | Following: {user_profile.following}")
+        # Create profile summary table
+        table = Table(title=f"👤 GitHub Profile: {user_profile.login}", border_style="cyan", show_header=False)
+        table.add_column("Field", style="bold cyan", no_wrap=True)
+        table.add_column("Value", style="white")
+
+        table.add_row("Name", user_profile.name or "[dim]Not set[/dim]")
+        table.add_row("Email", user_profile.email or "[dim]Not set[/dim]")
+        table.add_row("Bio", user_profile.bio or "[dim]Not set[/dim]")
+        table.add_row("Company", user_profile.company or "[dim]Not set[/dim]")
+        table.add_row("Location", user_profile.location or "[dim]Not set[/dim]")
+        table.add_row("Blog", user_profile.blog or "[dim]Not set[/dim]")
+        table.add_row("Public Repos", f"[cyan]{user_profile.public_repos}[/cyan]")
+        table.add_row("Followers", f"[cyan]{user_profile.followers}[/cyan]")
+        table.add_row("Following", f"[cyan]{user_profile.following}[/cyan]")
+
+        console.print()
+        console.print(table)
+        print_success(f"Profile exported to: {dest}")
 
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")
@@ -981,11 +1002,23 @@ def secrets(
             with open(dest, "w", encoding="utf-8") as f:
                 yaml.dump(secrets_dict, f, default_flow_style=False, allow_unicode=True)
 
-        console.print(f"\n✅ Secrets exported to: {dest}")
-        console.print(f"   Repository: {repository}")
-        console.print(f"   Total secrets: {len(repo_secrets)}")
+        # Create secrets table
         if repo_secrets:
-            console.print(f"   Secret names: {', '.join([s.name for s in repo_secrets])}")
+            table = Table(title=f"🔐 Repository Secrets: {repository}", border_style="cyan")
+            table.add_column("Secret Name", style="bold yellow", no_wrap=True)
+            table.add_column("Created", style="dim")
+            table.add_column("Updated", style="dim")
+
+            for secret in repo_secrets:
+                table.add_row(secret.name, secret.created_at[:10], secret.updated_at[:10])
+
+            console.print()
+            console.print(table)
+        else:
+            print_info(f"No secrets found for {repository}")
+
+        print_success(f"Secrets exported to: {dest}")
+        console.print(f"   [dim]Total secrets: {len(repo_secrets)}[/dim]")
 
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")
@@ -1324,11 +1357,19 @@ def issues(
             with open(dest, "w") as f:
                 json.dump(issues_data, f, indent=2)
 
-        console.print(f"\n[green]✅ Issues exported to: {dest}[/green]")
-        console.print(f"   Repository: {repository}")
-        console.print(f"   Total issues: {len(issues_list)}")
-        console.print(f"   State filter: {state}")
-        console.print(f"   Format: {format}")
+        # Create summary table
+        table = Table(title=f"📋 Issues Export Summary: {repository}", border_style="cyan")
+        table.add_column("Metric", style="bold cyan")
+        table.add_column("Value", style="white")
+
+        table.add_row("Total Issues", f"[cyan]{len(issues_list)}[/cyan]")
+        table.add_row("State Filter", state)
+        table.add_row("Format", format)
+        table.add_row("Exported To", str(dest))
+
+        console.print()
+        console.print(table)
+        print_success("Issues exported successfully")
 
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")
@@ -1450,11 +1491,19 @@ def pulls(
             with open(dest, "w") as f:
                 json.dump(prs_data, f, indent=2)
 
-        console.print(f"\n[green]✅ Pull requests exported to: {dest}[/green]")
-        console.print(f"   Repository: {repository}")
-        console.print(f"   Total PRs: {len(prs_list)}")
-        console.print(f"   State filter: {state}")
-        console.print(f"   Format: {format}")
+        # Create summary table
+        table = Table(title=f"🔀 Pull Requests Export Summary: {repository}", border_style="cyan")
+        table.add_column("Metric", style="bold cyan")
+        table.add_column("Value", style="white")
+
+        table.add_row("Total PRs", f"[cyan]{len(prs_list)}[/cyan]")
+        table.add_row("State Filter", state)
+        table.add_row("Format", format)
+        table.add_row("Exported To", str(dest))
+
+        console.print()
+        console.print(table)
+        print_success("Pull requests exported successfully")
 
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")

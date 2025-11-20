@@ -7,14 +7,21 @@ Repository mirroring orchestration with parallel execution.
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from .git_utils import GitOperations
-from .github_api import GitHubAPIClient, GitHubAPIError
+from .github_api import GitHubAPIError, GitHubAPIClient
 from .models import Config, MirrorResult, MirrorSummary, Repository
-
-console = Console()
+from .rich_utils import (
+    Colors,
+    console,
+    format_action,
+    format_repo_name,
+    print_error,
+    print_info,
+    print_warning,
+)
 
 
 class MirrorOrchestrator:
@@ -215,20 +222,22 @@ class MirrorOrchestrator:
 
     def _print_result(self, result: MirrorResult) -> None:
         """Print the result of a mirror operation."""
+        repo_name = format_repo_name(result.repo.full_name)
+
         if result.success:
             if result.action == "cloned":
+                dest_path = self.config.dest / self.config.get_repo_category_path(result.repo)
                 console.print(
-                    f"[green]CLONE   [/green] {result.repo.full_name} -> "
-                    f"{self.config.dest / self.config.get_repo_category_path(result.repo)}"
+                    f"{format_action('CLONE', Colors.SUCCESS)} {repo_name} [dim]→ {dest_path}[/dim]"
                 )
             elif result.action == "updated":
-                console.print(f"[blue]UPDATE  [/blue] {result.repo.full_name}")
+                console.print(f"{format_action('UPDATE', Colors.INFO)} {repo_name}")
             elif result.action == "skipped":
                 console.print(
-                    f"[yellow]SKIP    [/yellow] {result.repo.full_name} ({result.message})"
+                    f"{format_action('SKIP', Colors.WARNING)} {repo_name} [dim]({result.message})[/dim]"
                 )
         else:
-            console.print(f"[red]FAIL    [/red] {result.repo.full_name}: {result.error}")
+            console.print(f"{format_action('FAIL', Colors.ERROR)} {repo_name} [red]{result.error}[/red]")
 
     def _print_summary(self, summary: MirrorSummary) -> None:
         """
@@ -236,18 +245,26 @@ class MirrorOrchestrator:
 
         "Numbers tell the story. Make sure it's a good one." — schema.cx
         """
-        console.print("\n" + "=" * 60)
-        console.print("[bold]Summary[/bold]")
-        console.print("=" * 60)
-        console.print(f"Total repositories: {summary.total}")
-        console.print(f"[green]✓ Cloned:  {summary.cloned}[/green]")
-        console.print(f"[blue]✓ Updated: {summary.updated}[/blue]")
-        console.print(f"[yellow]⊘ Skipped: {summary.skipped}[/yellow]")
-        console.print(f"[red]✗ Failed:  {summary.failed}[/red]")
+        # Create summary table
+        table = Table(title="📊 Mirror Operation Summary", border_style="cyan", show_header=True)
+        table.add_column("Metric", style="bold", no_wrap=True)
+        table.add_column("Count", justify="right", style="cyan")
+        table.add_column("Status", justify="center")
 
+        # Add rows with color-coded status
+        table.add_row("Total Repositories", str(summary.total), "")
+        table.add_row("Cloned", str(summary.cloned), "[green]✓[/green]")
+        table.add_row("Updated", str(summary.updated), "[blue]✓[/blue]")
+        table.add_row("Skipped", str(summary.skipped), "[yellow]⊘[/yellow]")
+        table.add_row("Failed", str(summary.failed), "[red]✗[/red]")
+
+        console.print()
+        console.print(table)
+
+        # Show errors if any
         if summary.errors:
             console.print("\n[bold red]Errors:[/bold red]")
             for error in summary.errors:
-                console.print(f"  • {error}")
+                console.print(f"  [red]•[/red] {error}")
 
-        console.print("=" * 60 + "\n")
+        console.print()
