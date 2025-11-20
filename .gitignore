@@ -1,6 +1,7 @@
 # Kluster
 .github/instructions/kluster-code-verify.instructions.md
 .kluster
+.github/instructions/
 
 # Environment variables - NEVER commit tokens!
 .env
