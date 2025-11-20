@@ -262,3 +262,223 @@ def test_api_error_rate_limit(user_config: Config) -> None:
 
     with pytest.raises(GitHubAPIError, match="rate limit"):
         client.get_repositories()
+
+
+# ============================================================================
+# Search Repositories Tests
+# ============================================================================
+
+
+@responses.activate
+def test_search_repositories_basic(user_config: Config) -> None:
+    """Test basic repository search."""
+    # Mock search API response
+    responses.add(
+        responses.GET,
+        "https://api.github.com/search/repositories",
+        json={
+            "total_count": 2,
+            "items": [
+                {
+                    "name": "test-repo-1",
+                    "full_name": "owner1/test-repo-1",
+                    "owner": {"login": "owner1", "type": "User"},
+                    "ssh_url": "git@github.com:owner1/test-repo-1.git",
+                    "clone_url": "https://github.com/owner1/test-repo-1.git",
+                    "default_branch": "main",
+                    "private": False,
+                    "fork": False,
+                    "archived": False,
+                },
+                {
+                    "name": "test-repo-2",
+                    "full_name": "owner2/test-repo-2",
+                    "owner": {"login": "owner2", "type": "User"},
+                    "ssh_url": "git@github.com:owner2/test-repo-2.git",
+                    "clone_url": "https://github.com/owner2/test-repo-2.git",
+                    "default_branch": "master",
+                    "private": False,
+                    "fork": False,
+                    "archived": False,
+                },
+            ],
+        },
+        status=200,
+    )
+
+    client = GitHubAPIClient(user_config)
+    repos = client.search_repositories(query="test", limit=10)
+
+    assert len(repos) == 2
+    assert repos[0].name == "test-repo-1"
+    assert repos[0].owner == "owner1"
+    assert repos[1].name == "test-repo-2"
+    assert repos[1].owner == "owner2"
+
+
+@responses.activate
+def test_search_repositories_with_language_filter(user_config: Config) -> None:
+    """Test repository search with language filter."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/search/repositories",
+        json={
+            "total_count": 1,
+            "items": [
+                {
+                    "name": "python-repo",
+                    "full_name": "owner/python-repo",
+                    "owner": {"login": "owner", "type": "User"},
+                    "ssh_url": "git@github.com:owner/python-repo.git",
+                    "clone_url": "https://github.com/owner/python-repo.git",
+                    "default_branch": "main",
+                    "private": False,
+                    "fork": False,
+                    "archived": False,
+                },
+            ],
+        },
+        status=200,
+    )
+
+    client = GitHubAPIClient(user_config)
+    repos = client.search_repositories(query="test", language="python", limit=10)
+
+    assert len(repos) == 1
+    assert repos[0].name == "python-repo"
+
+
+@responses.activate
+def test_search_repositories_with_min_stars(user_config: Config) -> None:
+    """Test repository search with minimum stars filter."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/search/repositories",
+        json={
+            "total_count": 1,
+            "items": [
+                {
+                    "name": "popular-repo",
+                    "full_name": "owner/popular-repo",
+                    "owner": {"login": "owner", "type": "User"},
+                    "ssh_url": "git@github.com:owner/popular-repo.git",
+                    "clone_url": "https://github.com/owner/popular-repo.git",
+                    "default_branch": "main",
+                    "private": False,
+                    "fork": False,
+                    "archived": False,
+                },
+            ],
+        },
+        status=200,
+    )
+
+    client = GitHubAPIClient(user_config)
+    repos = client.search_repositories(query="test", min_stars=1000, limit=10)
+
+    assert len(repos) == 1
+    assert repos[0].name == "popular-repo"
+
+
+@responses.activate
+def test_search_repositories_with_sorting(user_config: Config) -> None:
+    """Test repository search with sorting options."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/search/repositories",
+        json={
+            "total_count": 2,
+            "items": [
+                {
+                    "name": "repo-1",
+                    "full_name": "owner/repo-1",
+                    "owner": {"login": "owner", "type": "User"},
+                    "ssh_url": "git@github.com:owner/repo-1.git",
+                    "clone_url": "https://github.com/owner/repo-1.git",
+                    "default_branch": "main",
+                    "private": False,
+                    "fork": False,
+                    "archived": False,
+                },
+                {
+                    "name": "repo-2",
+                    "full_name": "owner/repo-2",
+                    "owner": {"login": "owner", "type": "User"},
+                    "ssh_url": "git@github.com:owner/repo-2.git",
+                    "clone_url": "https://github.com/owner/repo-2.git",
+                    "default_branch": "main",
+                    "private": False,
+                    "fork": False,
+                    "archived": False,
+                },
+            ],
+        },
+        status=200,
+    )
+
+    client = GitHubAPIClient(user_config)
+    repos = client.search_repositories(query="test", sort="stars", order="desc", limit=10)
+
+    assert len(repos) == 2
+
+
+@responses.activate
+def test_search_repositories_empty_results(user_config: Config) -> None:
+    """Test repository search with no results."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/search/repositories",
+        json={"total_count": 0, "items": []},
+        status=200,
+    )
+
+    client = GitHubAPIClient(user_config)
+    repos = client.search_repositories(query="nonexistent-keyword-xyz", limit=10)
+
+    assert len(repos) == 0
+
+
+@responses.activate
+def test_search_repositories_limit_validation(user_config: Config) -> None:
+    """Test that search validates limit parameter."""
+    client = GitHubAPIClient(user_config)
+
+    # Test limit too low
+    with pytest.raises(ValueError, match="Limit must be between 1 and 100"):
+        client.search_repositories(query="test", limit=0)
+
+    # Test limit too high
+    with pytest.raises(ValueError, match="Limit must be between 1 and 100"):
+        client.search_repositories(query="test", limit=101)
+
+
+@responses.activate
+def test_search_repositories_invalid_query(user_config: Config) -> None:
+    """Test handling of invalid search query."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/search/repositories",
+        json={"message": "Validation Failed"},
+        status=422,
+    )
+
+    client = GitHubAPIClient(user_config)
+
+    with pytest.raises(GitHubAPIError, match="Invalid search query"):
+        client.search_repositories(query="invalid:::query", limit=10)
+
+
+@responses.activate
+def test_search_repositories_api_error(user_config: Config) -> None:
+    """Test handling of API errors during search."""
+    responses.add(
+        responses.GET,
+        "https://api.github.com/search/repositories",
+        json={"message": "Internal Server Error"},
+        status=500,
+    )
+
+    client = GitHubAPIClient(user_config)
+
+    with pytest.raises(GitHubAPIError, match="Search failed"):
+        client.search_repositories(query="test", limit=10)

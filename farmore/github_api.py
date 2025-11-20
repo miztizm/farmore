@@ -374,6 +374,121 @@ class GitHubAPIClient:
 
         return filtered
 
+    def search_repositories(
+        self,
+        query: str,
+        language: str | None = None,
+        min_stars: int | None = None,
+        sort: str = "best-match",
+        order: str = "desc",
+        limit: int = 10,
+    ) -> list[Repository]:
+        """
+        Search for repositories on GitHub using the Search API.
+
+        "Search is just organized guessing. But with better results." — schema.cx
+
+        Args:
+            query: Search query string (e.g., "smsbomber", "machine learning")
+            language: Filter by programming language (e.g., "python", "javascript")
+            min_stars: Minimum number of stars required
+            sort: Sort order - "stars", "forks", "updated", or "best-match" (default)
+            order: Sort direction - "asc" or "desc" (default)
+            limit: Maximum number of repositories to return (1-100)
+
+        Returns:
+            List of Repository objects matching the search criteria
+
+        Raises:
+            GitHubAPIError: If the API request fails
+            ValueError: If limit is out of range (1-100)
+        """
+        # Validate limit
+        if not 1 <= limit <= 100:
+            raise ValueError("Limit must be between 1 and 100")
+
+        # Build search query with qualifiers
+        search_query = query.strip()
+
+        if language:
+            search_query += f" language:{language}"
+
+        if min_stars is not None:
+            search_query += f" stars:>={min_stars}"
+
+        # Prepare API request
+        endpoint = "/search/repositories"
+        url = f"{self.BASE_URL}{endpoint}"
+
+        # Map "best-match" to empty string (GitHub's default)
+        api_sort = "" if sort == "best-match" else sort
+
+        params = {
+            "q": search_query,
+            "per_page": min(limit, 100),  # GitHub max is 100 per page
+            "page": 1,
+        }
+
+        if api_sort:
+            params["sort"] = api_sort
+            params["order"] = order
+
+        console.print(f"\n[cyan]🔍 Searching GitHub repositories...[/cyan]")
+        console.print(f"   [dim]Query: {search_query}[/dim]")
+        console.print(f"   [dim]Sort: {sort} ({order})[/dim]")
+        console.print(f"   [dim]Limit: {limit} repositories[/dim]")
+
+        try:
+            response = self._make_request(url, initial_params=params)
+
+            # Display rate limit info
+            self._display_rate_limit_info(response)
+
+            data = response.json()
+
+            # Check if we got results
+            total_count = data.get("total_count", 0)
+            items = data.get("items", [])
+
+            if total_count == 0:
+                console.print(f"\n[yellow]ℹ️  No repositories found matching your query[/yellow]")
+                return []
+
+            console.print(f"\n[cyan]📊 Found {total_count:,} total results (showing {len(items)})[/cyan]")
+
+            # Parse repositories from search results
+            repos = []
+            for item in items:
+                repo = Repository(
+                    name=item["name"],
+                    full_name=item["full_name"],
+                    owner=item["owner"]["login"],
+                    ssh_url=item["ssh_url"],
+                    clone_url=item["clone_url"],
+                    default_branch=item.get("default_branch", "main"),
+                    private=item.get("private", False),
+                    fork=item.get("fork", False),
+                    archived=item.get("archived", False),
+                    owner_type=item["owner"].get("type", "User"),
+                )
+                repos.append(repo)
+
+            return repos
+
+        except GitHubAPIError as e:
+            # Re-raise with more specific error messages for search
+            error_msg = str(e)
+            if "422" in error_msg or "Unprocessable" in error_msg:
+                raise GitHubAPIError(
+                    f"Invalid search query: {search_query}. "
+                    "Check GitHub's search syntax: https://docs.github.com/en/search-github/searching-on-github/searching-for-repositories"
+                ) from e
+            elif "500" in error_msg or "Server Error" in error_msg:
+                raise GitHubAPIError(f"Search failed: GitHub API returned a server error") from e
+            else:
+                # Re-raise the original error
+                raise
+
     def get_user_profile(self, username: str | None = None) -> UserProfile:
         """
         Fetch user profile information.
