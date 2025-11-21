@@ -159,6 +159,51 @@ def sanitize_query_for_dirname(query: str, max_length: int = 50) -> str:
     return sanitized
 
 
+def validate_repository_format(repository: str) -> tuple[str, str]:
+    """
+    Validate and parse repository string in 'owner/repo' format.
+    
+    Args:
+        repository: Repository string in format 'owner/repo'
+    
+    Returns:
+        Tuple of (owner, repo) if valid
+        
+    Raises:
+        ValueError: If format is invalid or contains disallowed characters
+        
+    Security:
+        Prevents command injection by validating against GitHub's allowed characters.
+        GitHub repository names allow: alphanumeric, hyphens, underscores, and periods.
+    """
+    import re
+    
+    parts = repository.split("/")
+    if len(parts) != 2:
+        raise ValueError("Repository must be in format 'owner/repo'")
+    
+    owner, repo = parts
+    
+    # Validate owner and repo names (GitHub's allowed characters)
+    # Pattern: alphanumeric, hyphens, underscores, periods (no spaces or special chars)
+    github_name_pattern = r'^[a-zA-Z0-9._-]+$'
+    
+    if not re.match(github_name_pattern, owner):
+        raise ValueError(f"Invalid owner name '{owner}'. Only alphanumeric characters, '.', '-', and '_' allowed.")
+    
+    if not re.match(github_name_pattern, repo):
+        raise ValueError(f"Invalid repository name '{repo}'. Only alphanumeric characters, '.', '-', and '_' allowed.")
+    
+    # Additional length validation (GitHub limits)
+    if len(owner) > 39:  # GitHub username max length
+        raise ValueError(f"Owner name too long (max 39 characters): '{owner}'")
+    
+    if len(repo) > 100:  # GitHub repo name max length
+        raise ValueError(f"Repository name too long (max 100 characters): '{repo}'")
+    
+    return owner, repo
+
+
 def export_repository_data(
     client: GitHubAPIClient,
     repos: list,
@@ -328,7 +373,8 @@ def export_repository_data(
 def version_callback(value: bool) -> None:
     """Print version and exit."""
     if value:
-        console.print("Farmore version 0.3.0")
+        from . import __version__
+        console.print(f"Farmore version {__version__}")
         console.print("Repository: https://github.com/miztizm/farmore")
         raise typer.Exit()
 

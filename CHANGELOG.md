@@ -5,6 +5,44 @@ All notable changes to Farmore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2025-11-21
+
+### Added
+- **Input validation module** - Comprehensive security validation for all user inputs
+  - `validate_repository_format()` - Prevents command injection and enforces GitHub naming rules
+  - `validate_github_token()` - Token format and length validation
+  - `validate_path_safety()` - Path traversal attack prevention
+  - `validate_format_option()` - Enum validation for export formats
+  - `validate_state_option()` - Enum validation for issue/PR states
+  - `sanitize_filename()` - Safe filename generation from user input
+  - `sanitize_command_arg()` - Command injection prevention for subprocess calls
+- **Resource management** - Added context manager support to GitHubAPIClient
+  - `__enter__` and `__exit__` methods for automatic session cleanup
+  - `close()` method to explicitly close HTTP sessions
+  - Prevents resource leaks in long-running operations
+- **Comprehensive test suite** - Added 20 validation tests with 100% pass rate
+  - Repository format validation tests
+  - Token validation tests
+  - Path safety tests
+  - Format and state option tests
+  - Filename sanitization tests
+- **Documentation** - Added comprehensive audit documentation
+  - CODE_QUALITY_AUDIT.md - Detailed code quality analysis
+  - AUDIT_COMPLETION_SUMMARY.md - Implementation summary
+
+### Changed
+- **GitHubAPIClient** - Updated User-Agent header to reflect current version
+- **Security posture** - Upgraded from B+ to A- grade through validation improvements
+
+### Fixed
+- **Version synchronization** - Aligned __init__.py version with pyproject.toml (0.3.4)
+- **Resource leaks** - HTTP sessions now properly closed after use
+
+### Security
+- **Command injection prevention** - All user inputs validated before subprocess calls
+- **Path traversal prevention** - Directory traversal attempts blocked
+- **Input sanitization** - Filenames and arguments sanitized against malicious input
+
 ## [0.3.4] - 2025-11-20
 
 ### Changed

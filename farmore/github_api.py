@@ -57,7 +57,7 @@ class GitHubAPIClient:
         # Set up authentication headers
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Farmore/0.1.0 (https://github.com/miztizm/farmore)",
+            "User-Agent": "Farmore/0.3.4 (https://github.com/miztizm/farmore)",
         }
 
         if config.token:
@@ -67,6 +67,27 @@ class GitHubAPIClient:
 
         # Cache authenticated username for filtering
         self._authenticated_username: str | None = None
+
+    def __enter__(self) -> "GitHubAPIClient":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - close session."""
+        self.close()
+
+    def close(self) -> None:
+        """Close the HTTP session and release resources."""
+        if self.session:
+            self.session.close()
+
+    def __del__(self) -> None:
+        """Cleanup when object is garbage collected."""
+        try:
+            self.close()
+        except Exception:
+            # Silently ignore errors during cleanup
+            pass
 
     def _get_authenticated_user(self) -> str | None:
         """
