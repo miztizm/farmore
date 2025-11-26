@@ -92,13 +92,20 @@ class Config:
     include_forks: bool = False
     include_archived: bool = False
     exclude_org_repos: bool = False  # Exclude organization repositories
+    exclude_repos: list[str] | None = None  # List of repo names to exclude
 
     # Execution options
     dry_run: bool = False
     max_workers: int = 4
+    skip_existing: bool = False  # Skip repos that already exist locally
 
-    # Runtime state
+    # Git clone options
     use_ssh: bool = True  # Prefer SSH, fallback to HTTPS
+    bare: bool = False  # Create bare/mirror clones
+    lfs: bool = False  # Use Git LFS for cloning
+
+    # GitHub Enterprise support
+    github_host: str | None = None  # GitHub Enterprise hostname
 
     # Repository categorization (for organizing backups by type)
     repository_category: RepositoryCategory | None = None
@@ -112,6 +119,10 @@ class Config:
 
         # Expand user home directory
         self.dest = self.dest.expanduser()
+        
+        # Initialize exclude_repos as empty list if None
+        if self.exclude_repos is None:
+            self.exclude_repos = []
 
     def get_repo_category_path(self, repo: Repository) -> Path:
         """

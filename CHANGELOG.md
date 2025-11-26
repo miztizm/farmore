@@ -5,6 +5,66 @@ All notable changes to Farmore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-11-26
+
+### Added
+- **`--bare` flag** - Create bare/mirror clones that preserve all refs, branches, and tags
+  - True 1:1 backups of repositories
+  - Uses `git clone --mirror` for complete repository preservation
+  - Automatic detection of bare repositories for updates
+- **`--lfs` flag** - Git LFS support for repositories with large files
+  - Uses `git lfs clone` for LFS-enabled repositories
+  - Automatic LFS availability check with helpful error messages
+  - Extended timeout for large file downloads (10 minutes)
+- **`--skip-existing` flag** - Skip repositories that already exist locally
+  - Faster partial syncs for stable repositories
+  - Useful for incremental backup strategies
+- **`--exclude` option** - Exclude specific repositories by name
+  - Can be used multiple times: `--exclude repo1 --exclude repo2`
+  - Filters applied after API fetch for efficiency
+- **`--github-host` / `-H` option** - GitHub Enterprise support
+  - Connect to self-hosted GitHub Enterprise servers
+  - Supports `GITHUB_HOST` environment variable
+  - Automatically uses `/api/v3` endpoint path
+- **Retry on transient failures** - Automatic retry with exponential backoff
+  - Retries on 502, 503, 504 server errors
+  - Retries on connection errors and timeouts
+  - Configurable max retries (default: 3) and delay (default: 5s)
+  - Backoff multiplier of 2x between retries
+- **Docker support** - Official Dockerfile for containerized backups
+  - Multi-stage Alpine build for minimal image size
+  - Git LFS pre-installed
+  - SSH key mounting support
+  - Volume mounts for backups and SSH keys
+- **New git operations**:
+  - `is_lfs_available()` - Check if git-lfs is installed
+  - `fetch_lfs()` - Fetch LFS objects from remote
+  - `update_mirror()` - Update bare/mirror repositories
+  - `fetch()` with `--prune` support
+
+### Changed
+- **Config model** - Extended with new options:
+  - `bare: bool` - Create bare/mirror clones
+  - `lfs: bool` - Use Git LFS for cloning
+  - `skip_existing: bool` - Skip existing repos
+  - `exclude_repos: list[str]` - Repository names to exclude
+  - `github_host: str | None` - GitHub Enterprise hostname
+- **GitHubAPIClient** - Now supports GitHub Enterprise
+  - Dynamic `BASE_URL` based on `github_host` config
+  - Updated User-Agent to version 0.4.0
+- **Git repository detection** - Now correctly identifies bare repositories
+  - Checks for `HEAD` and `objects` directory for bare repos
+- **`_filter_repositories()`** - Added exclude repos filter
+- **MirrorOrchestrator** - Passes `bare` and `lfs` options through to git operations
+- **User-Agent header** - Updated to `Farmore/0.4.0`
+
+### Documentation
+- **COMPETITIVE_ANALYSIS.md** - Comprehensive competitor analysis vs python-github-backup
+  - Feature-by-feature comparison table
+  - Prioritized improvement roadmap
+  - Implementation code examples
+  - Strategic recommendations
+
 ## [0.3.5] - 2025-11-21
 
 ### Added

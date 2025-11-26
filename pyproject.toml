@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "farmore"
-version = "0.3.5"
+version = "0.4.0"
 description = "Mirror every repo you own — in one command"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [
     {name = "miztizm", email = "617020+miztizm@users.noreply.github.com"}
 ]
-keywords = ["github", "backup", "clone", "mirror", "git"]
+keywords = ["github", "backup", "clone", "mirror", "git", "lfs", "enterprise"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -21,6 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Version Control :: Git",
 ]
 

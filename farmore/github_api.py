@@ -7,6 +7,8 @@ GitHub API client with pagination support.
 import re
 import time
 from datetime import datetime
+from functools import wraps
+from typing import Callable, TypeVar
 
 import requests
 
@@ -39,6 +41,72 @@ class RateLimitError(GitHubAPIError):
     pass
 
 
+# Type variable for retry decorator
+T = TypeVar("T")
+
+
+def retry_on_failure(
+    max_retries: int = 3,
+    delay: float = 5.0,
+    backoff: float = 2.0,
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """
+    Decorator to retry on transient API failures.
+
+    "Persistence is the difference between a bug and a feature." — schema.cx
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        delay: Initial delay between retries in seconds
+        backoff: Multiplier for delay on each retry (exponential backoff)
+    """
+
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> T:
+            last_error: Exception | None = None
+            current_delay = delay
+
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except (
+                    requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout,
+                    requests.exceptions.ChunkedEncodingError,
+                ) as e:
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        console.print(
+                            f"[yellow]⏳ Request failed ({type(e).__name__}), "
+                            f"retrying in {current_delay:.1f}s... "
+                            f"(attempt {attempt + 2}/{max_retries})[/yellow]"
+                        )
+                        time.sleep(current_delay)
+                        current_delay *= backoff
+                except requests.exceptions.HTTPError as e:
+                    # Retry on server errors (502, 503, 504)
+                    if e.response is not None and e.response.status_code in (502, 503, 504):
+                        last_error = e
+                        if attempt < max_retries - 1:
+                            console.print(
+                                f"[yellow]⏳ Server error ({e.response.status_code}), "
+                                f"retrying in {current_delay:.1f}s...[/yellow]"
+                            )
+                            time.sleep(current_delay)
+                            current_delay *= backoff
+                    else:
+                        raise
+
+            if last_error:
+                raise last_error
+            raise RuntimeError("Unexpected state in retry decorator")
+
+        return wrapper
+
+    return decorator
+
+
 class GitHubAPIClient:
     """
     GitHub REST API v3 client.
@@ -46,7 +114,6 @@ class GitHubAPIClient:
     "They track everything. Might as well use their API." — schema.cx
     """
 
-    BASE_URL = "https://api.github.com"
     PER_PAGE = 100  # Maximum allowed by GitHub
 
     def __init__(self, config: Config) -> None:
@@ -54,10 +121,17 @@ class GitHubAPIClient:
         self.config = config
         self.session = requests.Session()
 
+        # Support GitHub Enterprise with custom hostname
+        if config.github_host:
+            self.BASE_URL = f"https://{config.github_host}/api/v3"
+            console.print(f"[cyan]🏢 Using GitHub Enterprise: {config.github_host}[/cyan]")
+        else:
+            self.BASE_URL = "https://api.github.com"
+
         # Set up authentication headers
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Farmore/0.3.4 (https://github.com/miztizm/farmore)",
+            "User-Agent": "Farmore/0.4.0 (https://github.com/miztizm/farmore)",
         }
 
         if config.token:
@@ -389,6 +463,15 @@ class GitHubAPIClient:
             filtered = [r for r in filtered if r.owner.lower() == self._authenticated_username.lower()]
             if len(org_repos) > 0:
                 console.print(f"   [dim]🔍 Filtered out {len(org_repos)} organization repos (remove --exclude-orgs to include them)[/dim]")
+
+        # Filter excluded repositories by name
+        if self.config.exclude_repos:
+            before = len(filtered)
+            excluded = [r for r in filtered if r.name in self.config.exclude_repos]
+            filtered = [r for r in filtered if r.name not in self.config.exclude_repos]
+            if len(excluded) > 0:
+                excluded_names = ", ".join(r.name for r in excluded)
+                console.print(f"   [dim]🔍 Excluded {len(excluded)} repos by name: {excluded_names}[/dim]")
 
         if len(filtered) < initial_count:
             console.print(f"   [cyan]📊 Total after filtering: {initial_count} → {len(filtered)} repositories[/cyan]")

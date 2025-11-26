@@ -427,6 +427,12 @@ def user(
         "--exclude-orgs",
         help="Exclude organization repositories (only download personal repos)",
     ),
+    exclude: list[str] = typer.Option(
+        [],
+        "--exclude",
+        "-e",
+        help="Repository names to exclude (can be used multiple times)",
+    ),
     include_issues: bool = typer.Option(
         False,
         "--include-issues",
@@ -457,6 +463,21 @@ def user(
         "--dry-run",
         help="Preview actions without executing",
     ),
+    skip_existing: bool = typer.Option(
+        False,
+        "--skip-existing",
+        help="Skip repositories that already exist locally (don't update them)",
+    ),
+    bare: bool = typer.Option(
+        False,
+        "--bare",
+        help="Create bare/mirror clones (preserves all refs, branches, tags)",
+    ),
+    lfs: bool = typer.Option(
+        False,
+        "--lfs",
+        help="Use Git LFS for cloning (for repos with large files)",
+    ),
     max_workers: int = typer.Option(
         4,
         "--max-workers",
@@ -464,6 +485,13 @@ def user(
         help="Maximum number of parallel workers",
         min=1,
         max=20,
+    ),
+    github_host: str | None = typer.Option(
+        None,
+        "--github-host",
+        "-H",
+        help="GitHub Enterprise hostname (e.g., github.mycompany.com)",
+        envvar="GITHUB_HOST",
     ),
     token: str | None = typer.Option(
         None,
@@ -482,6 +510,8 @@ def user(
         farmore user miztizm
         farmore user miztizm --dest ./custom_backups
         farmore user miztizm --include-issues --include-pulls --include-wikis
+        farmore user miztizm --bare --lfs  # Mirror clone with LFS support
+        farmore user miztizm --exclude repo1 --exclude repo2  # Exclude specific repos
     """
     # Use default destination if not provided
     if dest is None:
@@ -503,8 +533,13 @@ def user(
         include_forks=include_forks,
         include_archived=include_archived,
         exclude_org_repos=exclude_org_repos,
+        exclude_repos=list(exclude) if exclude else None,
         dry_run=dry_run,
+        skip_existing=skip_existing,
+        bare=bare,
+        lfs=lfs,
         max_workers=max_workers,
+        github_host=github_host,
     )
 
     orchestrator = MirrorOrchestrator(config)
@@ -559,6 +594,12 @@ def org(
         "--include-archived",
         help="Include archived repositories",
     ),
+    exclude: list[str] = typer.Option(
+        [],
+        "--exclude",
+        "-e",
+        help="Repository names to exclude (can be used multiple times)",
+    ),
     include_issues: bool = typer.Option(
         False,
         "--include-issues",
@@ -589,6 +630,21 @@ def org(
         "--dry-run",
         help="Preview actions without executing",
     ),
+    skip_existing: bool = typer.Option(
+        False,
+        "--skip-existing",
+        help="Skip repositories that already exist locally (don't update them)",
+    ),
+    bare: bool = typer.Option(
+        False,
+        "--bare",
+        help="Create bare/mirror clones (preserves all refs, branches, tags)",
+    ),
+    lfs: bool = typer.Option(
+        False,
+        "--lfs",
+        help="Use Git LFS for cloning (for repos with large files)",
+    ),
     max_workers: int = typer.Option(
         4,
         "--max-workers",
@@ -596,6 +652,13 @@ def org(
         help="Maximum number of parallel workers",
         min=1,
         max=20,
+    ),
+    github_host: str | None = typer.Option(
+        None,
+        "--github-host",
+        "-H",
+        help="GitHub Enterprise hostname (e.g., github.mycompany.com)",
+        envvar="GITHUB_HOST",
     ),
     token: str | None = typer.Option(
         None,
@@ -614,6 +677,7 @@ def org(
         farmore org github
         farmore org github --dest ./custom_backups
         farmore org myorg --include-issues --include-pulls --include-wikis
+        farmore org myorg --bare --lfs  # Mirror clone with LFS support
     """
     # Use default destination if not provided
     if dest is None:
@@ -633,8 +697,13 @@ def org(
         visibility=visibility,
         include_forks=include_forks,
         include_archived=include_archived,
+        exclude_repos=list(exclude) if exclude else None,
         dry_run=dry_run,
+        skip_existing=skip_existing,
+        bare=bare,
+        lfs=lfs,
         max_workers=max_workers,
+        github_host=github_host,
     )
 
     orchestrator = MirrorOrchestrator(config)

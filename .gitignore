@@ -3,6 +3,9 @@
 .kluster
 .github/instructions/
 
+# Competitor analysis (local reference only)
+.github/python-github-backup/
+
 # Environment variables - NEVER commit tokens!
 .env
 .env.local

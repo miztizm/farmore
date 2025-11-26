@@ -27,7 +27,27 @@ class GitOperations:
     def is_git_repository(path: Path) -> bool:
         """Check if a directory is a git repository."""
         git_dir = path / ".git"
-        return git_dir.exists() and git_dir.is_dir()
+        # Also check for bare repositories (no .git folder, but has HEAD)
+        bare_head = path / "HEAD"
+        return (git_dir.exists() and git_dir.is_dir()) or (bare_head.exists() and (path / "objects").exists())
+
+    @staticmethod
+    def is_lfs_available() -> bool:
+        """
+        Check if git-lfs is installed and available.
+        
+        "LFS: Large File Storage. Or 'Let's Find Solutions' for big repos." — schema.cx
+        """
+        try:
+            result = subprocess.run(
+                ["git", "lfs", "version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            return result.returncode == 0
+        except (subprocess.SubprocessError, FileNotFoundError):
+            return False
 
     @staticmethod
     def get_remote_url(path: Path) -> str | None:
@@ -49,7 +69,13 @@ class GitOperations:
             return None
 
     @staticmethod
-    def clone(repo: Repository, dest_path: Path, use_ssh: bool = True) -> tuple[bool, str]:
+    def clone(
+        repo: Repository,
+        dest_path: Path,
+        use_ssh: bool = True,
+        bare: bool = False,
+        lfs: bool = False,
+    ) -> tuple[bool, str]:
         """
         Clone a repository.
 
@@ -59,6 +85,8 @@ class GitOperations:
             repo: Repository to clone
             dest_path: Destination path for the clone
             use_ssh: Whether to use SSH (True) or HTTPS (False)
+            bare: Whether to create a bare/mirror clone (preserves all refs)
+            lfs: Whether to use Git LFS for cloning (for repos with large files)
 
         Returns:
             Tuple of (success, message)
@@ -69,15 +97,38 @@ class GitOperations:
         # Ensure parent directory exists
         dest_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Check LFS availability if requested
+        if lfs and not GitOperations.is_lfs_available():
+            return False, "Git LFS not installed. Install with: git lfs install"
+
         try:
+            # Build the clone command based on options
+            if lfs:
+                # Use git lfs clone for LFS-enabled repos
+                cmd = ["git", "lfs", "clone", url, str(dest_path)]
+            elif bare:
+                # Use --mirror for true 1:1 backup (all refs, branches, tags)
+                cmd = ["git", "clone", "--mirror", url, str(dest_path)]
+            else:
+                # Standard clone
+                cmd = ["git", "clone", url, str(dest_path)]
+
             subprocess.run(
-                ["git", "clone", url, str(dest_path)],
+                cmd,
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=300,  # 5 minutes timeout
+                timeout=600 if lfs else 300,  # 10 min for LFS, 5 min otherwise
             )
-            return True, "Cloned successfully"
+            
+            # Build success message
+            mode_suffix = ""
+            if bare:
+                mode_suffix = " (mirror)"
+            elif lfs:
+                mode_suffix = " (with LFS)"
+            
+            return True, f"Cloned successfully{mode_suffix}"
         except subprocess.TimeoutExpired:
             return False, "Clone operation timed out"
         except subprocess.CalledProcessError as e:
@@ -90,12 +141,13 @@ class GitOperations:
             return False, f"Clone failed: {error_msg}"
 
     @staticmethod
-    def fetch(path: Path) -> tuple[bool, str]:
+    def fetch(path: Path, prune: bool = True) -> tuple[bool, str]:
         """
         Fetch updates from remote.
 
         Args:
             path: Path to the git repository
+            prune: Whether to prune deleted remote branches (default: True)
 
         Returns:
             Tuple of (success, message)
@@ -104,8 +156,12 @@ class GitOperations:
             return False, "Not a git repository"
 
         try:
+            cmd = ["git", "fetch", "--all"]
+            if prune:
+                cmd.append("--prune")
+            
             subprocess.run(
-                ["git", "fetch", "--all"],
+                cmd,
                 cwd=path,
                 capture_output=True,
                 text=True,
@@ -118,6 +174,69 @@ class GitOperations:
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr.strip() if e.stderr else str(e)
             return False, f"Fetch failed: {error_msg}"
+
+    @staticmethod
+    def fetch_lfs(path: Path) -> tuple[bool, str]:
+        """
+        Fetch LFS objects from remote.
+
+        Args:
+            path: Path to the git repository
+
+        Returns:
+            Tuple of (success, message)
+        """
+        if not GitOperations.is_git_repository(path):
+            return False, "Not a git repository"
+
+        if not GitOperations.is_lfs_available():
+            return False, "Git LFS not installed"
+
+        try:
+            subprocess.run(
+                ["git", "lfs", "fetch", "--all"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=600,  # LFS can take longer
+            )
+            return True, "LFS objects fetched successfully"
+        except subprocess.TimeoutExpired:
+            return False, "LFS fetch operation timed out"
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.strip() if e.stderr else str(e)
+            return False, f"LFS fetch failed: {error_msg}"
+
+    @staticmethod
+    def update_mirror(path: Path) -> tuple[bool, str]:
+        """
+        Update a bare/mirror repository by fetching all refs.
+
+        Args:
+            path: Path to the bare git repository
+
+        Returns:
+            Tuple of (success, message)
+        """
+        if not GitOperations.is_git_repository(path):
+            return False, "Not a git repository"
+
+        try:
+            subprocess.run(
+                ["git", "remote", "update", "--prune"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=300,
+            )
+            return True, "Mirror updated successfully"
+        except subprocess.TimeoutExpired:
+            return False, "Mirror update operation timed out"
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.strip() if e.stderr else str(e)
+            return False, f"Mirror update failed: {error_msg}"
 
     @staticmethod
     def pull(path: Path, branch: str = "main") -> tuple[bool, str]:
@@ -177,21 +296,34 @@ class GitOperations:
             return False, f"Pull failed: {error_msg}"
 
     @staticmethod
-    def update(repo: Repository, path: Path) -> tuple[bool, str]:
+    def update(repo: Repository, path: Path, lfs: bool = False, bare: bool = False) -> tuple[bool, str]:
         """
-        Update an existing repository (fetch + pull).
+        Update an existing repository (fetch + pull, or mirror update for bare repos).
 
         Args:
             repo: Repository information
             path: Path to the git repository
+            lfs: Whether to also fetch LFS objects
+            bare: Whether this is a bare/mirror repository
 
         Returns:
             Tuple of (success, message)
         """
+        if bare:
+            # For mirror/bare repos, use remote update
+            return GitOperations.update_mirror(path)
+        
         # Fetch first
         success, message = GitOperations.fetch(path)
         if not success:
             return False, message
+
+        # Optionally fetch LFS objects
+        if lfs and GitOperations.is_lfs_available():
+            lfs_success, lfs_message = GitOperations.fetch_lfs(path)
+            if not lfs_success:
+                # Log warning but continue
+                pass
 
         # Then pull
         success, message = GitOperations.pull(path, repo.default_branch)

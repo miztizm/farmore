@@ -158,6 +158,15 @@ class MirrorOrchestrator:
                         error=f"Path exists but is not a git repository: {dest_path}",
                     )
 
+                # Skip existing repos if --skip-existing is set
+                if self.config.skip_existing:
+                    return MirrorResult(
+                        repo=repo,
+                        success=True,
+                        action="skipped",
+                        message="Already exists (--skip-existing)",
+                    )
+
                 # Verify remote URL matches
                 remote_url = self.git_ops.get_remote_url(dest_path)
                 expected_urls = [repo.ssh_url, repo.clone_url]
@@ -173,7 +182,11 @@ class MirrorOrchestrator:
                     )
 
                 # Update existing repo
-                success, message = self.git_ops.update(repo, dest_path)
+                success, message = self.git_ops.update(
+                    repo, dest_path,
+                    lfs=self.config.lfs,
+                    bare=self.config.bare,
+                )
                 action = "updated" if success else "failed"
                 return MirrorResult(
                     repo=repo,
@@ -205,20 +218,35 @@ class MirrorOrchestrator:
         """
         # Try SSH first if configured
         if self.config.use_ssh:
-            success, message = self.git_ops.clone(repo, dest_path, use_ssh=True)
+            success, message = self.git_ops.clone(
+                repo, dest_path,
+                use_ssh=True,
+                bare=self.config.bare,
+                lfs=self.config.lfs,
+            )
             if success:
                 return True, message
 
             # If SSH failed due to auth, try HTTPS
             if "SSH authentication failed" in message and self.config.token:
-                success, message = self.git_ops.clone(repo, dest_path, use_ssh=False)
+                success, message = self.git_ops.clone(
+                    repo, dest_path,
+                    use_ssh=False,
+                    bare=self.config.bare,
+                    lfs=self.config.lfs,
+                )
                 if success:
                     return True, f"{message} (via HTTPS)"
                 return False, message
             return False, message
         else:
             # Use HTTPS directly
-            return self.git_ops.clone(repo, dest_path, use_ssh=False)
+            return self.git_ops.clone(
+                repo, dest_path,
+                use_ssh=False,
+                bare=self.config.bare,
+                lfs=self.config.lfs,
+            )
 
     def _print_result(self, result: MirrorResult) -> None:
         """Print the result of a mirror operation."""
