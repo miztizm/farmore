@@ -14,7 +14,12 @@ import requests
 
 from .models import (
     Config,
+    Discussion,
+    Follower,
     Issue,
+    Label,
+    Milestone,
+    Project,
     PullRequest,
     Release,
     ReleaseAsset,
@@ -23,10 +28,11 @@ from .models import (
     TargetType,
     UserProfile,
     Visibility,
+    Webhook,
     Workflow,
     WorkflowRun,
 )
-from .rich_utils import console, print_info, print_panel, print_warning
+from .rich_utils import console, print_panel, print_warning
 
 
 class GitHubAPIError(Exception):
@@ -131,7 +137,7 @@ class GitHubAPIClient:
         # Set up authentication headers
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Farmore/0.4.0 (https://github.com/miztizm/farmore)",
+            "User-Agent": "Farmore/0.6.0 (https://github.com/miztizm/farmore)",
         }
 
         if config.token:
@@ -472,6 +478,19 @@ class GitHubAPIClient:
             if len(excluded) > 0:
                 excluded_names = ", ".join(r.name for r in excluded)
                 console.print(f"   [dim]🔍 Excluded {len(excluded)} repos by name: {excluded_names}[/dim]")
+
+        # Filter by name regex pattern
+        if self.config.name_regex:
+            before = len(filtered)
+            try:
+                pattern = re.compile(self.config.name_regex)
+                matched = [r for r in filtered if pattern.search(r.name)]
+                excluded_count = len(filtered) - len(matched)
+                filtered = matched
+                if excluded_count > 0:
+                    console.print(f"   [dim]🔍 Name regex '{self.config.name_regex}' matched {len(filtered)}/{before} repos[/dim]")
+            except re.error as e:
+                print_warning(f"Invalid regex pattern '{self.config.name_regex}': {e}", prefix="⚠️")
 
         if len(filtered) < initial_count:
             console.print(f"   [cyan]📊 Total after filtering: {initial_count} → {len(filtered)} repositories[/cyan]")
@@ -1100,3 +1119,543 @@ class GitHubAPIClient:
             return data.get("has_wiki", False)
         except Exception:
             return False
+
+    def get_labels(self, owner: str, repo: str) -> list[Label]:
+        """
+        Fetch all labels for a repository.
+
+        "Labels are just tags with prettier colors." — schema.cx
+        """
+        endpoint = f"/repos/{owner}/{repo}/labels"
+        console.print(f"\n[cyan]🏷️  Fetching labels for repository: {owner}/{repo}[/cyan]")
+
+        all_labels = []
+        params = {"per_page": self.PER_PAGE, "page": 1}
+
+        try:
+            while True:
+                response = self._make_request(f"{self.BASE_URL}{endpoint}", initial_params=params)
+                data = response.json()
+
+                if not data:
+                    break
+
+                for item in data:
+                    label = Label(
+                        id=item["id"],
+                        name=item["name"],
+                        description=item.get("description"),
+                        color=item["color"],
+                    )
+                    all_labels.append(label)
+
+                # Check for next page
+                if "next" not in response.links:
+                    break
+
+                params["page"] += 1
+
+            console.print(f"   [green]✓ Found {len(all_labels)} labels[/green]")
+            return all_labels
+
+        except GitHubAPIError as e:
+            if "404" in str(e):
+                print_warning("Repository not accessible", prefix="⚠️")
+                return []
+            raise
+
+    def get_milestones(self, owner: str, repo: str, state: str = "all") -> list[Milestone]:
+        """
+        Fetch all milestones for a repository.
+
+        "Milestones are just deadlines you can see coming." — schema.cx
+        """
+        endpoint = f"/repos/{owner}/{repo}/milestones"
+        console.print(f"\n[cyan]🎯 Fetching milestones for repository: {owner}/{repo}[/cyan]")
+
+        all_milestones = []
+        params = {"state": state, "per_page": self.PER_PAGE, "page": 1}
+
+        try:
+            while True:
+                response = self._make_request(f"{self.BASE_URL}{endpoint}", initial_params=params)
+                data = response.json()
+
+                if not data:
+                    break
+
+                for item in data:
+                    milestone = Milestone(
+                        id=item["id"],
+                        number=item["number"],
+                        title=item["title"],
+                        description=item.get("description"),
+                        state=item["state"],
+                        open_issues=item["open_issues"],
+                        closed_issues=item["closed_issues"],
+                        created_at=item["created_at"],
+                        updated_at=item["updated_at"],
+                        due_on=item.get("due_on"),
+                        closed_at=item.get("closed_at"),
+                        html_url=item["html_url"],
+                    )
+                    all_milestones.append(milestone)
+
+                # Check for next page
+                if "next" not in response.links:
+                    break
+
+                params["page"] += 1
+
+            console.print(f"   [green]✓ Found {len(all_milestones)} milestones[/green]")
+            return all_milestones
+
+        except GitHubAPIError as e:
+            if "404" in str(e):
+                print_warning("Repository not accessible", prefix="⚠️")
+                return []
+            raise
+
+    def get_webhooks(self, owner: str, repo: str) -> list[Webhook]:
+        """
+        Fetch all webhooks for a repository.
+
+        Requires admin access to the repository.
+        "Webhooks are just callbacks with trust issues." — schema.cx
+        """
+        endpoint = f"/repos/{owner}/{repo}/hooks"
+        console.print(f"\n[cyan]🔗 Fetching webhooks for repository: {owner}/{repo}[/cyan]")
+        print_warning("Webhooks require admin access to the repository", prefix="ℹ️")
+
+        all_webhooks = []
+        params = {"per_page": self.PER_PAGE, "page": 1}
+
+        try:
+            while True:
+                response = self._make_request(f"{self.BASE_URL}{endpoint}", initial_params=params)
+                data = response.json()
+
+                if not data:
+                    break
+
+                for item in data:
+                    # Redact sensitive config info
+                    config = item.get("config", {})
+                    safe_config = {
+                        "url": config.get("url", ""),
+                        "content_type": config.get("content_type", "json"),
+                        "insecure_ssl": config.get("insecure_ssl", "0"),
+                    }
+
+                    webhook = Webhook(
+                        id=item["id"],
+                        name=item.get("name", "web"),
+                        active=item["active"],
+                        events=item.get("events", []),
+                        config=safe_config,
+                        created_at=item["created_at"],
+                        updated_at=item["updated_at"],
+                    )
+                    all_webhooks.append(webhook)
+
+                # Check for next page
+                if "next" not in response.links:
+                    break
+
+                params["page"] += 1
+
+            console.print(f"   [green]✓ Found {len(all_webhooks)} webhooks[/green]")
+            return all_webhooks
+
+        except GitHubAPIError as e:
+            if "404" in str(e) or "403" in str(e):
+                print_warning("No access to webhooks (requires admin)", prefix="⚠️")
+                return []
+            raise
+
+    def get_followers(self, username: str | None = None) -> list[Follower]:
+        """
+        Fetch all followers for a user.
+
+        "Followers are just watchers for humans." — schema.cx
+        """
+        if username:
+            endpoint = f"/users/{username}/followers"
+            console.print(f"\n[cyan]👥 Fetching followers for user: {username}[/cyan]")
+        else:
+            endpoint = "/user/followers"
+            authenticated_user = self._get_authenticated_user()
+            console.print(f"\n[cyan]👥 Fetching YOUR followers (authenticated as {authenticated_user})[/cyan]")
+
+        all_followers = []
+        params = {"per_page": self.PER_PAGE, "page": 1}
+
+        try:
+            while True:
+                response = self._make_request(f"{self.BASE_URL}{endpoint}", initial_params=params)
+                data = response.json()
+
+                if not data:
+                    break
+
+                for item in data:
+                    follower = Follower(
+                        login=item["login"],
+                        id=item["id"],
+                        avatar_url=item["avatar_url"],
+                        html_url=item["html_url"],
+                        type=item.get("type", "User"),
+                    )
+                    all_followers.append(follower)
+
+                # Check for next page
+                if "next" not in response.links:
+                    break
+
+                params["page"] += 1
+
+            console.print(f"   [green]✓ Found {len(all_followers)} followers[/green]")
+            return all_followers
+
+        except GitHubAPIError as e:
+            if "404" in str(e):
+                print_warning("User not found", prefix="⚠️")
+                return []
+            raise
+
+    def get_following(self, username: str | None = None) -> list[Follower]:
+        """
+        Fetch all users that a user is following.
+
+        "Following is just stalking with consent." — schema.cx
+        """
+        if username:
+            endpoint = f"/users/{username}/following"
+            console.print(f"\n[cyan]👤 Fetching users that {username} is following[/cyan]")
+        else:
+            endpoint = "/user/following"
+            authenticated_user = self._get_authenticated_user()
+            console.print(f"\n[cyan]👤 Fetching users YOU are following (authenticated as {authenticated_user})[/cyan]")
+
+        all_following = []
+        params = {"per_page": self.PER_PAGE, "page": 1}
+
+        try:
+            while True:
+                response = self._make_request(f"{self.BASE_URL}{endpoint}", initial_params=params)
+                data = response.json()
+
+                if not data:
+                    break
+
+                for item in data:
+                    following = Follower(
+                        login=item["login"],
+                        id=item["id"],
+                        avatar_url=item["avatar_url"],
+                        html_url=item["html_url"],
+                        type=item.get("type", "User"),
+                    )
+                    all_following.append(following)
+
+                # Check for next page
+                if "next" not in response.links:
+                    break
+
+                params["page"] += 1
+
+            console.print(f"   [green]✓ Found {len(all_following)} users being followed[/green]")
+            return all_following
+
+        except GitHubAPIError as e:
+            if "404" in str(e):
+                print_warning("User not found", prefix="⚠️")
+                return []
+            raise
+
+    def get_discussions(self, owner: str, repo: str) -> list[Discussion]:
+        """
+        Fetch all discussions for a repository using GraphQL API.
+
+        "Discussions are just issues that went to therapy." — schema.cx
+        """
+        console.print(f"\n[cyan]💬 Fetching discussions for repository: {owner}/{repo}[/cyan]")
+
+        # GraphQL query for discussions
+        query = """
+        query($owner: String!, $repo: String!, $cursor: String) {
+            repository(owner: $owner, name: $repo) {
+                discussions(first: 100, after: $cursor) {
+                    pageInfo {
+                        hasNextPage
+                        endCursor
+                    }
+                    nodes {
+                        id
+                        number
+                        title
+                        body
+                        author {
+                            login
+                        }
+                        category {
+                            name
+                        }
+                        answerChosenAt
+                        locked
+                        createdAt
+                        updatedAt
+                        url
+                        comments {
+                            totalCount
+                        }
+                        upvoteCount
+                    }
+                }
+            }
+        }
+        """
+
+        all_discussions = []
+        cursor = None
+
+        try:
+            while True:
+                variables = {"owner": owner, "repo": repo, "cursor": cursor}
+                response = self.session.post(
+                    "https://api.github.com/graphql",
+                    json={"query": query, "variables": variables},
+                    timeout=30,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                if "errors" in data:
+                    error_msg = data["errors"][0].get("message", "Unknown GraphQL error")
+                    if "Could not resolve" in error_msg or "NOT_FOUND" in str(data):
+                        print_warning("Discussions not enabled for this repository", prefix="⚠️")
+                        return []
+                    raise GitHubAPIError(f"GraphQL error: {error_msg}")
+
+                discussions_data = data.get("data", {}).get("repository", {}).get("discussions", {})
+                nodes = discussions_data.get("nodes", [])
+
+                if not nodes:
+                    break
+
+                for item in nodes:
+                    discussion = Discussion(
+                        id=item["id"],
+                        number=item["number"],
+                        title=item["title"],
+                        body=item.get("body"),
+                        author=item["author"]["login"] if item.get("author") else "ghost",
+                        category=item["category"]["name"] if item.get("category") else "General",
+                        answer_chosen=item.get("answerChosenAt") is not None,
+                        locked=item.get("locked", False),
+                        created_at=item["createdAt"],
+                        updated_at=item["updatedAt"],
+                        html_url=item["url"],
+                        comments_count=item["comments"]["totalCount"],
+                        upvote_count=item.get("upvoteCount", 0),
+                    )
+                    all_discussions.append(discussion)
+
+                page_info = discussions_data.get("pageInfo", {})
+                if not page_info.get("hasNextPage"):
+                    break
+                cursor = page_info.get("endCursor")
+
+            console.print(f"   [green]✓ Found {len(all_discussions)} discussions[/green]")
+            return all_discussions
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                print_warning("GraphQL API requires authentication", prefix="⚠️")
+                return []
+            raise GitHubAPIError(f"Failed to fetch discussions: {e}") from e
+        except Exception as e:
+            print_warning(f"Failed to fetch discussions: {e}", prefix="⚠️")
+            return []
+
+    def get_projects(self, owner: str, repo: str | None = None) -> list[Project]:
+        """
+        Fetch all projects for a user/org or repository using GraphQL API.
+
+        "Projects are just spreadsheets with delusions of grandeur." — schema.cx
+        """
+        if repo:
+            console.print(f"\n[cyan]📋 Fetching projects for repository: {owner}/{repo}[/cyan]")
+        else:
+            console.print(f"\n[cyan]📋 Fetching projects for: {owner}[/cyan]")
+
+        # GraphQL query for projects v2
+        if repo:
+            query = """
+            query($owner: String!, $repo: String!, $cursor: String) {
+                repository(owner: $owner, name: $repo) {
+                    projectsV2(first: 100, after: $cursor) {
+                        pageInfo {
+                            hasNextPage
+                            endCursor
+                        }
+                        nodes {
+                            id
+                            number
+                            title
+                            shortDescription
+                            public
+                            closed
+                            createdAt
+                            updatedAt
+                            url
+                            items {
+                                totalCount
+                            }
+                            fields(first: 20) {
+                                nodes {
+                                    ... on ProjectV2Field {
+                                        id
+                                        name
+                                        dataType
+                                    }
+                                    ... on ProjectV2SingleSelectField {
+                                        id
+                                        name
+                                        dataType
+                                        options {
+                                            id
+                                            name
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            """
+            variables = {"owner": owner, "repo": repo, "cursor": None}
+        else:
+            # User/org level projects
+            query = """
+            query($owner: String!, $cursor: String) {
+                user(login: $owner) {
+                    projectsV2(first: 100, after: $cursor) {
+                        pageInfo {
+                            hasNextPage
+                            endCursor
+                        }
+                        nodes {
+                            id
+                            number
+                            title
+                            shortDescription
+                            public
+                            closed
+                            createdAt
+                            updatedAt
+                            url
+                            items {
+                                totalCount
+                            }
+                            fields(first: 20) {
+                                nodes {
+                                    ... on ProjectV2Field {
+                                        id
+                                        name
+                                        dataType
+                                    }
+                                    ... on ProjectV2SingleSelectField {
+                                        id
+                                        name
+                                        dataType
+                                        options {
+                                            id
+                                            name
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            """
+            variables = {"owner": owner, "cursor": None}
+
+        all_projects = []
+
+        try:
+            while True:
+                response = self.session.post(
+                    "https://api.github.com/graphql",
+                    json={"query": query, "variables": variables},
+                    timeout=30,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                if "errors" in data:
+                    error_msg = data["errors"][0].get("message", "Unknown GraphQL error")
+                    if "Could not resolve" in error_msg:
+                        print_warning("Projects not found", prefix="⚠️")
+                        return []
+                    raise GitHubAPIError(f"GraphQL error: {error_msg}")
+
+                # Extract projects data
+                if repo:
+                    projects_data = data.get("data", {}).get("repository", {}).get("projectsV2", {})
+                else:
+                    projects_data = data.get("data", {}).get("user", {}).get("projectsV2", {})
+
+                nodes = projects_data.get("nodes", [])
+
+                if not nodes:
+                    break
+
+                for item in nodes:
+                    # Parse fields
+                    fields = []
+                    for field in item.get("fields", {}).get("nodes", []):
+                        if field:
+                            field_data = {
+                                "id": field.get("id"),
+                                "name": field.get("name"),
+                                "type": field.get("dataType"),
+                            }
+                            if "options" in field:
+                                field_data["options"] = field["options"]
+                            fields.append(field_data)
+
+                    project = Project(
+                        id=item["id"],
+                        number=item["number"],
+                        title=item["title"],
+                        description=item.get("shortDescription"),
+                        public=item.get("public", False),
+                        closed=item.get("closed", False),
+                        created_at=item["createdAt"],
+                        updated_at=item["updatedAt"],
+                        html_url=item["url"],
+                        items_count=item["items"]["totalCount"],
+                        fields=fields,
+                    )
+                    all_projects.append(project)
+
+                page_info = projects_data.get("pageInfo", {})
+                if not page_info.get("hasNextPage"):
+                    break
+                variables["cursor"] = page_info.get("endCursor")
+
+            console.print(f"   [green]✓ Found {len(all_projects)} projects[/green]")
+            return all_projects
+
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 401:
+                print_warning("GraphQL API requires authentication", prefix="⚠️")
+                return []
+            raise GitHubAPIError(f"Failed to fetch projects: {e}") from e
+        except Exception as e:
+            print_warning(f"Failed to fetch projects: {e}", prefix="⚠️")
+            return []

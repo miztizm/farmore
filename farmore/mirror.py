@@ -18,9 +18,6 @@ from .rich_utils import (
     console,
     format_action,
     format_repo_name,
-    print_error,
-    print_info,
-    print_warning,
 )
 
 
@@ -61,8 +58,8 @@ class MirrorOrchestrator:
                         "will be mirrored.[/yellow]"
                     )
 
-                api_client = GitHubAPIClient(self.config)
-                repos = api_client.get_repositories()
+                with GitHubAPIClient(self.config) as api_client:
+                    repos = api_client.get_repositories()
 
             if not repos:
                 console.print(

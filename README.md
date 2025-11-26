@@ -4,7 +4,7 @@
 
 **Farmore** is a comprehensive Python CLI tool for backing up GitHub repositories and their associated data. Clone repositories, export issues, download releases, backup wikis, and more — all with a single command.
 
-**Version:** 0.3.3
+**Version:** 0.9.0
 **License:** MIT
 **Python:** 3.10+
 
@@ -19,6 +19,10 @@
 - **Smart updates** - Automatically pulls updates for existing repositories
 - **Parallel processing** - Fast backups with configurable worker threads
 - **SSH/HTTPS support** - Tries SSH first, falls back to HTTPS with token
+- **Bare/Mirror clones** - Use `--bare` flag for true 1:1 repository backups
+- **Git LFS support** - Use `--lfs` flag for repositories with large files
+- **Name regex filtering** - Filter repositories by name pattern with `--name-regex`
+- **Incremental backups** - Track backup state with `--incremental` flag
 
 ### 📊 Data Export
 - **Issues export** - Export all issues to JSON/YAML with optional comments
@@ -26,12 +30,18 @@
 - **Workflows backup** - Backup GitHub Actions workflows and run history
 - **Releases download** - Download releases with metadata and binary assets
 - **Wiki backup** - Clone repository wikis as git repositories
+- **Labels export** - Backup repository labels with colors
+- **Milestones export** - Backup milestone configuration and progress
+- **Gists backup** - Clone all your GitHub gists
+- **Attachments download** - Download images/files from issues and PRs
 
 ### 🔐 Access & Security
 - **Private repository support** - Full access with GitHub Personal Access Tokens
 - **Organization repos** - Backup all organization repositories
 - **Starred & watched repos** - Mirror repositories you've starred or are watching
 - **Secrets export** - Export repository secret names (values are never exposed)
+- **Followers/Following** - Export user's social connections
+- **Webhooks export** - Backup webhook configurations
 
 ### 🎯 Advanced Features
 - **Flexible filtering** - By visibility (public/private/all), forks, archived status
@@ -39,6 +49,9 @@
 - **Organized structure** - Clean directory organization separating code from data
 - **Cross-platform** - Works on Linux, macOS, and Windows
 - **Beautiful CLI** - Powered by Typer and Rich with progress bars
+- **GitHub Enterprise** - Support via `--github-host` flag
+- **Discussions backup** - Export repository discussions (GraphQL API)
+- **Projects backup** - Export Projects v2 data (GraphQL API)
 
 ---
 

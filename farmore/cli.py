@@ -5,7 +5,6 @@ Farmore CLI interface.
 """
 
 import json
-import os
 import subprocess
 import sys
 import traceback
@@ -16,7 +15,6 @@ import requests
 import typer
 import yaml
 from dotenv import load_dotenv
-from rich.progress import Progress
 from rich.table import Table
 
 from .git_utils import GitOperations
@@ -27,10 +25,10 @@ from .rich_utils import (
     console,
     print_error,
     print_info,
-    print_panel,
     print_success,
     print_warning,
 )
+from .validation import validate_repository_format as _validate_repo_format
 
 # Load environment variables from .env file if it exists
 # "Configuration is just organized secrets." — schema.cx
@@ -163,6 +161,9 @@ def validate_repository_format(repository: str) -> tuple[str, str]:
     """
     Validate and parse repository string in 'owner/repo' format.
     
+    This is a wrapper around the validation module function that converts
+    ValidationError to ValueError for CLI backward compatibility.
+    
     Args:
         repository: Repository string in format 'owner/repo'
     
@@ -171,37 +172,13 @@ def validate_repository_format(repository: str) -> tuple[str, str]:
         
     Raises:
         ValueError: If format is invalid or contains disallowed characters
-        
-    Security:
-        Prevents command injection by validating against GitHub's allowed characters.
-        GitHub repository names allow: alphanumeric, hyphens, underscores, and periods.
     """
-    import re
+    from .validation import ValidationError
     
-    parts = repository.split("/")
-    if len(parts) != 2:
-        raise ValueError("Repository must be in format 'owner/repo'")
-    
-    owner, repo = parts
-    
-    # Validate owner and repo names (GitHub's allowed characters)
-    # Pattern: alphanumeric, hyphens, underscores, periods (no spaces or special chars)
-    github_name_pattern = r'^[a-zA-Z0-9._-]+$'
-    
-    if not re.match(github_name_pattern, owner):
-        raise ValueError(f"Invalid owner name '{owner}'. Only alphanumeric characters, '.', '-', and '_' allowed.")
-    
-    if not re.match(github_name_pattern, repo):
-        raise ValueError(f"Invalid repository name '{repo}'. Only alphanumeric characters, '.', '-', and '_' allowed.")
-    
-    # Additional length validation (GitHub limits)
-    if len(owner) > 39:  # GitHub username max length
-        raise ValueError(f"Owner name too long (max 39 characters): '{owner}'")
-    
-    if len(repo) > 100:  # GitHub repo name max length
-        raise ValueError(f"Repository name too long (max 100 characters): '{repo}'")
-    
-    return owner, repo
+    try:
+        return _validate_repo_format(repository)
+    except ValidationError as e:
+        raise ValueError(str(e)) from e
 
 
 def export_repository_data(
@@ -433,6 +410,18 @@ def user(
         "-e",
         help="Repository names to exclude (can be used multiple times)",
     ),
+    name_regex: str | None = typer.Option(
+        None,
+        "--name-regex",
+        "-N",
+        help="Only backup repos matching this regex pattern (e.g., '^my-prefix-.*')",
+    ),
+    incremental: bool = typer.Option(
+        False,
+        "--incremental",
+        "-i",
+        help="Only backup repos that have changed since last backup",
+    ),
     include_issues: bool = typer.Option(
         False,
         "--include-issues",
@@ -512,6 +501,8 @@ def user(
         farmore user miztizm --include-issues --include-pulls --include-wikis
         farmore user miztizm --bare --lfs  # Mirror clone with LFS support
         farmore user miztizm --exclude repo1 --exclude repo2  # Exclude specific repos
+        farmore user miztizm --name-regex '^my-prefix-.*'  # Only repos matching pattern
+        farmore user miztizm --incremental  # Only repos changed since last backup
     """
     # Use default destination if not provided
     if dest is None:
@@ -534,6 +525,8 @@ def user(
         include_archived=include_archived,
         exclude_org_repos=exclude_org_repos,
         exclude_repos=list(exclude) if exclude else None,
+        name_regex=name_regex,
+        incremental=incremental,
         dry_run=dry_run,
         skip_existing=skip_existing,
         bare=bare,
@@ -599,6 +592,18 @@ def org(
         "--exclude",
         "-e",
         help="Repository names to exclude (can be used multiple times)",
+    ),
+    name_regex: str | None = typer.Option(
+        None,
+        "--name-regex",
+        "-N",
+        help="Only backup repos matching this regex pattern (e.g., '^my-prefix-.*')",
+    ),
+    incremental: bool = typer.Option(
+        False,
+        "--incremental",
+        "-i",
+        help="Only backup repos that have changed since last backup",
     ),
     include_issues: bool = typer.Option(
         False,
@@ -678,6 +683,8 @@ def org(
         farmore org github --dest ./custom_backups
         farmore org myorg --include-issues --include-pulls --include-wikis
         farmore org myorg --bare --lfs  # Mirror clone with LFS support
+        farmore org myorg --name-regex '^project-.*'  # Only repos matching pattern
+        farmore org myorg --incremental  # Only repos changed since last backup
     """
     # Use default destination if not provided
     if dest is None:
@@ -698,6 +705,8 @@ def org(
         include_forks=include_forks,
         include_archived=include_archived,
         exclude_repos=list(exclude) if exclude else None,
+        name_regex=name_regex,
+        incremental=incremental,
         dry_run=dry_run,
         skip_existing=skip_existing,
         bare=bare,
@@ -2258,6 +2267,2368 @@ def search(
         if "--debug" in sys.argv:
             traceback.print_exc()
         sys.exit(1)
+
+
+@app.command()
+def gists(
+    username: str | None = typer.Argument(None, help="GitHub username (omit for authenticated user)"),
+    dest: Path | None = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination directory for gists backup (default: backups/<username>/gists/)",
+    ),
+    include_starred: bool = typer.Option(
+        False,
+        "--starred",
+        help="Also backup starred gists",
+    ),
+    skip_existing: bool = typer.Option(
+        False,
+        "--skip-existing",
+        help="Skip gists that already exist locally",
+    ),
+    github_host: str | None = typer.Option(
+        None,
+        "--github-host",
+        "-H",
+        help="GitHub Enterprise hostname (e.g., github.mycompany.com)",
+        envvar="GITHUB_HOST",
+    ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="GitHub Personal Access Token (prefer GITHUB_TOKEN env var)",
+        envvar="GITHUB_TOKEN",
+    ),
+) -> None:
+    """
+    Backup all gists for a user.
+
+    "Gists are just repos that didn't make the cut. But they still deserve a backup." — schema.cx
+
+    Gists are cloned as git repositories, preserving their full history.
+
+    Example:
+        farmore gists
+        farmore gists miztizm
+        farmore gists miztizm --starred  # Include starred gists
+        farmore gists --dest ./my-gists --skip-existing
+    """
+    from .gists import GistsBackup
+
+    # Determine destination
+    if dest is None:
+        dest = Path("backups") / (username or "me") / "gists"
+
+    console.print(f"\n[cyan]📝 Backing up gists...[/cyan]")
+    if github_host:
+        console.print(f"   [dim]GitHub Enterprise: {github_host}[/dim]")
+
+    try:
+        with GistsBackup(token=token, github_host=github_host, dest=dest.parent) as backup:
+            summary = backup.backup_user_gists(
+                username=username,
+                include_starred=include_starred,
+                skip_existing=skip_existing,
+            )
+
+        # Display summary
+        table = Table(title="📝 Gists Backup Summary", border_style="cyan")
+        table.add_column("Metric", style="bold cyan")
+        table.add_column("Value", style="white")
+
+        table.add_row("Total Gists", f"[cyan]{summary['total']}[/cyan]")
+        table.add_row("Cloned", f"[green]{summary['cloned']}[/green]")
+        table.add_row("Updated", f"[blue]{summary['updated']}[/blue]")
+        table.add_row("Skipped", f"[dim]{summary['skipped']}[/dim]")
+        table.add_row("Failed", f"[red]{summary['failed']}[/red]" if summary['failed'] else "[green]0[/green]")
+        table.add_row("Destination", str(dest))
+
+        console.print()
+        console.print(table)
+
+        if summary['errors']:
+            console.print("\n[red]Errors:[/red]")
+            for error in summary['errors'][:5]:  # Show first 5 errors
+                console.print(f"   [red]• {error}[/red]")
+            if len(summary['errors']) > 5:
+                console.print(f"   [dim]... and {len(summary['errors']) - 5} more errors[/dim]")
+
+        if summary['failed'] > 0 and summary['cloned'] == 0 and summary['updated'] == 0:
+            sys.exit(1)
+
+        print_success("Gists backup complete!")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@app.command()
+def attachments(
+    repository: str = typer.Argument(..., help="Repository in format 'owner/repo'"),
+    dest: Path | None = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination directory for attachments (default: backups/<owner>/<repo>/attachments/)",
+    ),
+    source: str = typer.Option(
+        "all",
+        "--source",
+        "-s",
+        help="Source to extract from: 'issues', 'pulls', or 'all'",
+    ),
+    skip_existing: bool = typer.Option(
+        True,
+        "--skip-existing/--no-skip-existing",
+        help="Skip attachments that already exist locally",
+    ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="GitHub Personal Access Token (prefer GITHUB_TOKEN env var)",
+        envvar="GITHUB_TOKEN",
+    ),
+) -> None:
+    """
+    Download attachments (images, files) from issues and pull requests.
+
+    "Every picture tells a story. Make sure you back it up." — schema.cx
+
+    This command extracts and downloads all user-uploaded files from GitHub
+    issues and pull requests, including images, documents, and other attachments.
+
+    Example:
+        farmore attachments miztizm/farmore
+        farmore attachments myorg/myrepo --source issues
+        farmore attachments myorg/myrepo --source pulls --dest ./my-attachments
+    """
+    from .attachments import AttachmentDownloader
+
+    # Parse owner/repo
+    try:
+        owner, repo = validate_repository_format(repository)
+    except ValueError as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        sys.exit(1)
+
+    # Validate source option
+    if source.lower() not in ["issues", "pulls", "all"]:
+        console.print("[red]❌ Error: Source must be 'issues', 'pulls', or 'all'[/red]")
+        sys.exit(1)
+
+    # Determine destination
+    if dest is None:
+        dest = Path("backups") / owner / repo
+
+    console.print(f"\n[cyan]📎 Downloading attachments for: {repository}[/cyan]")
+    console.print(f"   [dim]Source: {source}[/dim]")
+    console.print(f"   [dim]Destination: {dest}[/dim]")
+
+    # Create config for API client
+    config = Config(
+        target_type=TargetType.USER,
+        target_name=owner,
+        dest=dest,
+        token=token,
+    )
+
+    try:
+        client = GitHubAPIClient(config)
+        total_downloaded = 0
+        total_failed = 0
+        total_skipped = 0
+
+        with AttachmentDownloader(token=token, dest=dest) as downloader:
+            # Download from issues
+            if source.lower() in ["issues", "all"]:
+                issues_list = client.get_issues(owner, repo, state="all", include_comments=True)
+                issues_data = [
+                    {
+                        "number": issue.number,
+                        "body": issue.body,
+                        "comments": issue.comments,
+                    }
+                    for issue in issues_list
+                ]
+
+                manifest = downloader.download_from_issues(
+                    owner=owner,
+                    repo=repo,
+                    issues=issues_data,
+                    skip_existing=skip_existing,
+                )
+
+                total_downloaded += manifest.total_downloaded
+                total_failed += manifest.total_failed
+                total_skipped += manifest.total_skipped
+
+                console.print(f"\n   [green]✓ Issues: {manifest.total_downloaded} downloaded, "
+                              f"{manifest.total_skipped} skipped, {manifest.total_failed} failed[/green]")
+
+            # Download from pull requests
+            if source.lower() in ["pulls", "all"]:
+                prs_list = client.get_pull_requests(owner, repo, state="all", include_comments=True)
+                prs_data = [
+                    {
+                        "number": pr.number,
+                        "body": pr.body,
+                        "comments": pr.comments,
+                    }
+                    for pr in prs_list
+                ]
+
+                manifest = downloader.download_from_pull_requests(
+                    owner=owner,
+                    repo=repo,
+                    pull_requests=prs_data,
+                    skip_existing=skip_existing,
+                )
+
+                total_downloaded += manifest.total_downloaded
+                total_failed += manifest.total_failed
+                total_skipped += manifest.total_skipped
+
+                console.print(f"\n   [green]✓ Pull Requests: {manifest.total_downloaded} downloaded, "
+                              f"{manifest.total_skipped} skipped, {manifest.total_failed} failed[/green]")
+
+        # Display summary
+        table = Table(title="📎 Attachments Download Summary", border_style="cyan")
+        table.add_column("Metric", style="bold cyan")
+        table.add_column("Value", style="white")
+
+        table.add_row("Repository", repository)
+        table.add_row("Downloaded", f"[green]{total_downloaded}[/green]")
+        table.add_row("Skipped", f"[dim]{total_skipped}[/dim]")
+        table.add_row("Failed", f"[red]{total_failed}[/red]" if total_failed else "[green]0[/green]")
+        table.add_row("Destination", str(dest))
+
+        console.print()
+        console.print(table)
+
+        if total_failed > 0 and total_downloaded == 0:
+            sys.exit(1)
+
+        print_success("Attachments download complete!")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@app.command()
+def labels(
+    repository: str = typer.Argument(..., help="Repository in format 'owner/repo'"),
+    dest: Path | None = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination file for labels export (default: backups/<owner>/data/labels/<owner>_<repo>_labels.json)",
+    ),
+    format: str = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        help="Export format: json or yaml",
+    ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="GitHub Personal Access Token (prefer GITHUB_TOKEN env var)",
+        envvar="GITHUB_TOKEN",
+    ),
+) -> None:
+    """
+    Export all labels from a GitHub repository.
+
+    "Labels are just tags with prettier colors." — schema.cx
+
+    Example:
+        farmore labels miztizm/farmore
+        farmore labels myorg/myrepo --format yaml
+        farmore labels myorg/myrepo --dest ./my-labels.json
+    """
+    if format.lower() not in ["json", "yaml"]:
+        console.print("[red]❌ Error: Format must be 'json' or 'yaml'[/red]")
+        sys.exit(1)
+
+    # Parse owner/repo
+    try:
+        owner, repo = validate_repository_format(repository)
+    except ValueError as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        sys.exit(1)
+
+    # Determine destination
+    if dest is None:
+        dest = Path("backups") / owner / "data" / "labels" / f"{owner}_{repo}_labels.{format.lower()}"
+
+    # Create parent directory
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create config
+    config = Config(
+        target_type=TargetType.USER,
+        target_name=owner,
+        dest=Path("."),
+        token=token,
+    )
+
+    try:
+        client = GitHubAPIClient(config)
+        labels_list = client.get_labels(owner, repo)
+
+        # Convert to dict for export
+        labels_data = {
+            "repository": repository,
+            "total_labels": len(labels_list),
+            "exported_at": datetime.now().isoformat(),
+            "labels": [
+                {
+                    "id": label.id,
+                    "name": label.name,
+                    "description": label.description,
+                    "color": label.color,
+                }
+                for label in labels_list
+            ],
+        }
+
+        # Export to file
+        if format.lower() == "yaml":
+            with open(dest, "w") as f:
+                yaml.dump(labels_data, f, default_flow_style=False, sort_keys=False)
+        else:
+            with open(dest, "w") as f:
+                json.dump(labels_data, f, indent=2)
+
+        # Create summary table
+        if labels_list:
+            table = Table(title=f"🏷️  Labels: {repository}", border_style="cyan")
+            table.add_column("Name", style="bold")
+            table.add_column("Color", style="cyan")
+            table.add_column("Description", style="dim", max_width=50)
+
+            for label in labels_list:
+                table.add_row(
+                    label.name,
+                    f"#{label.color}",
+                    label.description or "[dim]No description[/dim]",
+                )
+
+            console.print()
+            console.print(table)
+
+        print_success(f"Labels exported to: {dest}")
+        console.print(f"   [dim]Total labels: {len(labels_list)}[/dim]")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@app.command()
+def milestones(
+    repository: str = typer.Argument(..., help="Repository in format 'owner/repo'"),
+    dest: Path | None = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination file for milestones export (default: backups/<owner>/data/milestones/<owner>_<repo>_milestones.json)",
+    ),
+    format: str = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        help="Export format: json or yaml",
+    ),
+    state: str = typer.Option(
+        "all",
+        "--state",
+        "-s",
+        help="Filter by state: open, closed, or all",
+    ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="GitHub Personal Access Token (prefer GITHUB_TOKEN env var)",
+        envvar="GITHUB_TOKEN",
+    ),
+) -> None:
+    """
+    Export all milestones from a GitHub repository.
+
+    "Milestones are just deadlines you can see coming." — schema.cx
+
+    Example:
+        farmore milestones miztizm/farmore
+        farmore milestones myorg/myrepo --state open
+        farmore milestones myorg/myrepo --format yaml
+    """
+    if format.lower() not in ["json", "yaml"]:
+        console.print("[red]❌ Error: Format must be 'json' or 'yaml'[/red]")
+        sys.exit(1)
+
+    # Parse owner/repo
+    try:
+        owner, repo = validate_repository_format(repository)
+    except ValueError as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        sys.exit(1)
+
+    # Determine destination
+    if dest is None:
+        dest = Path("backups") / owner / "data" / "milestones" / f"{owner}_{repo}_milestones.{format.lower()}"
+
+    # Create parent directory
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create config
+    config = Config(
+        target_type=TargetType.USER,
+        target_name=owner,
+        dest=Path("."),
+        token=token,
+    )
+
+    try:
+        client = GitHubAPIClient(config)
+        milestones_list = client.get_milestones(owner, repo, state=state)
+
+        # Convert to dict for export
+        milestones_data = {
+            "repository": repository,
+            "total_milestones": len(milestones_list),
+            "state_filter": state,
+            "exported_at": datetime.now().isoformat(),
+            "milestones": [
+                {
+                    "id": m.id,
+                    "number": m.number,
+                    "title": m.title,
+                    "description": m.description,
+                    "state": m.state,
+                    "open_issues": m.open_issues,
+                    "closed_issues": m.closed_issues,
+                    "created_at": m.created_at,
+                    "updated_at": m.updated_at,
+                    "due_on": m.due_on,
+                    "closed_at": m.closed_at,
+                    "html_url": m.html_url,
+                }
+                for m in milestones_list
+            ],
+        }
+
+        # Export to file
+        if format.lower() == "yaml":
+            with open(dest, "w") as f:
+                yaml.dump(milestones_data, f, default_flow_style=False, sort_keys=False)
+        else:
+            with open(dest, "w") as f:
+                json.dump(milestones_data, f, indent=2)
+
+        # Create summary table
+        if milestones_list:
+            table = Table(title=f"🎯 Milestones: {repository}", border_style="cyan")
+            table.add_column("Title", style="bold")
+            table.add_column("State", style="cyan")
+            table.add_column("Progress", style="green")
+            table.add_column("Due Date", style="dim")
+
+            for m in milestones_list:
+                total = m.open_issues + m.closed_issues
+                progress = f"{m.closed_issues}/{total}" if total > 0 else "0/0"
+                due = m.due_on[:10] if m.due_on else "No due date"
+                state_color = "green" if m.state == "open" else "dim"
+
+                table.add_row(
+                    m.title,
+                    f"[{state_color}]{m.state}[/{state_color}]",
+                    progress,
+                    due,
+                )
+
+            console.print()
+            console.print(table)
+
+        print_success(f"Milestones exported to: {dest}")
+        console.print(f"   [dim]Total milestones: {len(milestones_list)}[/dim]")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@app.command()
+def webhooks(
+    repository: str = typer.Argument(..., help="Repository in format 'owner/repo'"),
+    dest: Path | None = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination file for webhooks export (default: backups/<owner>/data/webhooks/<owner>_<repo>_webhooks.json)",
+    ),
+    format: str = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        help="Export format: json or yaml",
+    ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="GitHub Personal Access Token (prefer GITHUB_TOKEN env var)",
+        envvar="GITHUB_TOKEN",
+    ),
+) -> None:
+    """
+    Export webhooks configuration from a GitHub repository.
+
+    "Webhooks are just callbacks with trust issues." — schema.cx
+
+    ⚠️  Note: Requires admin access to the repository. Secret values are redacted.
+
+    Example:
+        farmore webhooks miztizm/farmore
+        farmore webhooks myorg/myrepo --format yaml
+    """
+    if format.lower() not in ["json", "yaml"]:
+        console.print("[red]❌ Error: Format must be 'json' or 'yaml'[/red]")
+        sys.exit(1)
+
+    # Parse owner/repo
+    try:
+        owner, repo = validate_repository_format(repository)
+    except ValueError as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        sys.exit(1)
+
+    # Determine destination
+    if dest is None:
+        dest = Path("backups") / owner / "data" / "webhooks" / f"{owner}_{repo}_webhooks.{format.lower()}"
+
+    # Create parent directory
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create config
+    config = Config(
+        target_type=TargetType.USER,
+        target_name=owner,
+        dest=Path("."),
+        token=token,
+    )
+
+    try:
+        client = GitHubAPIClient(config)
+        webhooks_list = client.get_webhooks(owner, repo)
+
+        # Convert to dict for export
+        webhooks_data = {
+            "repository": repository,
+            "total_webhooks": len(webhooks_list),
+            "exported_at": datetime.now().isoformat(),
+            "note": "Webhook secrets are not exported for security reasons",
+            "webhooks": [
+                {
+                    "id": wh.id,
+                    "name": wh.name,
+                    "active": wh.active,
+                    "events": wh.events,
+                    "config": wh.config,
+                    "created_at": wh.created_at,
+                    "updated_at": wh.updated_at,
+                }
+                for wh in webhooks_list
+            ],
+        }
+
+        # Export to file
+        if format.lower() == "yaml":
+            with open(dest, "w") as f:
+                yaml.dump(webhooks_data, f, default_flow_style=False, sort_keys=False)
+        else:
+            with open(dest, "w") as f:
+                json.dump(webhooks_data, f, indent=2)
+
+        # Create summary table
+        if webhooks_list:
+            table = Table(title=f"🔗 Webhooks: {repository}", border_style="cyan")
+            table.add_column("ID", style="dim")
+            table.add_column("URL", style="bold", max_width=50)
+            table.add_column("Active", style="cyan")
+            table.add_column("Events", style="dim")
+
+            for wh in webhooks_list:
+                url = wh.config.get("url", "N/A")
+                if len(url) > 50:
+                    url = url[:47] + "..."
+                active = "[green]Yes[/green]" if wh.active else "[red]No[/red]"
+                events = ", ".join(wh.events[:3])
+                if len(wh.events) > 3:
+                    events += f" (+{len(wh.events) - 3})"
+
+                table.add_row(str(wh.id), url, active, events)
+
+            console.print()
+            console.print(table)
+        else:
+            print_info(f"No webhooks found for {repository}")
+
+        print_success(f"Webhooks exported to: {dest}")
+        console.print(f"   [dim]Total webhooks: {len(webhooks_list)}[/dim]")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@app.command()
+def followers(
+    username: str | None = typer.Argument(None, help="GitHub username (omit for authenticated user)"),
+    dest: Path | None = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination file for followers export (default: backups/<username>/followers.json)",
+    ),
+    include_following: bool = typer.Option(
+        False,
+        "--include-following",
+        help="Also export users that the account is following",
+    ),
+    format: str = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        help="Export format: json or yaml",
+    ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="GitHub Personal Access Token (prefer GITHUB_TOKEN env var)",
+        envvar="GITHUB_TOKEN",
+    ),
+) -> None:
+    """
+    Export followers (and optionally following) for a GitHub user.
+
+    "Followers are just watchers for humans." — schema.cx
+
+    Example:
+        farmore followers
+        farmore followers miztizm
+        farmore followers miztizm --include-following
+        farmore followers --format yaml
+    """
+    if format.lower() not in ["json", "yaml"]:
+        console.print("[red]❌ Error: Format must be 'json' or 'yaml'[/red]")
+        sys.exit(1)
+
+    # Create config
+    config = Config(
+        target_type=TargetType.USER,
+        target_name=username or "me",
+        dest=Path("."),
+        token=token,
+    )
+
+    try:
+        client = GitHubAPIClient(config)
+
+        # Get the actual username if not provided
+        if username is None:
+            profile = client.get_user_profile(None)
+            actual_username = profile.login
+        else:
+            actual_username = username
+
+        # Determine destination
+        if dest is None:
+            dest = Path("backups") / actual_username / f"followers.{format.lower()}"
+
+        # Create parent directory
+        dest.parent.mkdir(parents=True, exist_ok=True)
+
+        # Fetch followers
+        followers_list = client.get_followers(username)
+
+        # Fetch following if requested
+        following_list = []
+        if include_following:
+            following_list = client.get_following(username)
+
+        # Convert to dict for export
+        export_data = {
+            "username": actual_username,
+            "exported_at": datetime.now().isoformat(),
+            "followers_count": len(followers_list),
+            "followers": [
+                {
+                    "login": f.login,
+                    "id": f.id,
+                    "avatar_url": f.avatar_url,
+                    "html_url": f.html_url,
+                    "type": f.type,
+                }
+                for f in followers_list
+            ],
+        }
+
+        if include_following:
+            export_data["following_count"] = len(following_list)
+            export_data["following"] = [
+                {
+                    "login": f.login,
+                    "id": f.id,
+                    "avatar_url": f.avatar_url,
+                    "html_url": f.html_url,
+                    "type": f.type,
+                }
+                for f in following_list
+            ]
+
+        # Export to file
+        if format.lower() == "yaml":
+            with open(dest, "w") as f:
+                yaml.dump(export_data, f, default_flow_style=False, sort_keys=False)
+        else:
+            with open(dest, "w") as f:
+                json.dump(export_data, f, indent=2)
+
+        # Create summary table
+        table = Table(title=f"👥 Social Graph: {actual_username}", border_style="cyan")
+        table.add_column("Metric", style="bold cyan")
+        table.add_column("Value", style="white")
+
+        table.add_row("Followers", f"[cyan]{len(followers_list)}[/cyan]")
+        if include_following:
+            table.add_row("Following", f"[cyan]{len(following_list)}[/cyan]")
+        table.add_row("Exported To", str(dest))
+
+        console.print()
+        console.print(table)
+        print_success("Followers exported successfully!")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@app.command()
+def discussions(
+    repository: str = typer.Argument(..., help="Repository in format 'owner/repo'"),
+    dest: Path | None = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination file for discussions export (default: backups/<owner>/data/discussions/<owner>_<repo>_discussions.json)",
+    ),
+    format: str = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        help="Export format: json or yaml",
+    ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="GitHub Personal Access Token (prefer GITHUB_TOKEN env var)",
+        envvar="GITHUB_TOKEN",
+    ),
+) -> None:
+    """
+    Export all discussions from a GitHub repository.
+
+    "Discussions are just issues that went to therapy." — schema.cx
+
+    Uses the GitHub GraphQL API to fetch discussions data.
+
+    Example:
+        farmore discussions miztizm/farmore
+        farmore discussions myorg/myrepo --format yaml
+    """
+    if format.lower() not in ["json", "yaml"]:
+        console.print("[red]❌ Error: Format must be 'json' or 'yaml'[/red]")
+        sys.exit(1)
+
+    # Parse owner/repo
+    try:
+        owner, repo = validate_repository_format(repository)
+    except ValueError as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        sys.exit(1)
+
+    # Determine destination
+    if dest is None:
+        dest = Path("backups") / owner / "data" / "discussions" / f"{owner}_{repo}_discussions.{format.lower()}"
+
+    # Create parent directory
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create config
+    config = Config(
+        target_type=TargetType.USER,
+        target_name=owner,
+        dest=Path("."),
+        token=token,
+    )
+
+    try:
+        client = GitHubAPIClient(config)
+        discussions_list = client.get_discussions(owner, repo)
+
+        # Convert to dict for export
+        discussions_data = {
+            "repository": repository,
+            "total_discussions": len(discussions_list),
+            "exported_at": datetime.now().isoformat(),
+            "discussions": [
+                {
+                    "id": d.id,
+                    "number": d.number,
+                    "title": d.title,
+                    "body": d.body,
+                    "author": d.author,
+                    "category": d.category,
+                    "answer_chosen": d.answer_chosen,
+                    "locked": d.locked,
+                    "created_at": d.created_at,
+                    "updated_at": d.updated_at,
+                    "html_url": d.html_url,
+                    "comments_count": d.comments_count,
+                    "upvote_count": d.upvote_count,
+                }
+                for d in discussions_list
+            ],
+        }
+
+        # Export to file
+        if format.lower() == "yaml":
+            with open(dest, "w") as f:
+                yaml.dump(discussions_data, f, default_flow_style=False, sort_keys=False)
+        else:
+            with open(dest, "w") as f:
+                json.dump(discussions_data, f, indent=2)
+
+        # Create summary table
+        if discussions_list:
+            table = Table(title=f"💬 Discussions: {repository}", border_style="cyan")
+            table.add_column("#", style="dim")
+            table.add_column("Title", style="bold", max_width=50)
+            table.add_column("Category", style="cyan")
+            table.add_column("Author", style="green")
+            table.add_column("💬", justify="right")
+            table.add_column("👍", justify="right")
+
+            for d in discussions_list[:20]:  # Show first 20
+                title = d.title[:47] + "..." if len(d.title) > 50 else d.title
+                table.add_row(
+                    str(d.number),
+                    title,
+                    d.category,
+                    d.author,
+                    str(d.comments_count),
+                    str(d.upvote_count),
+                )
+
+            if len(discussions_list) > 20:
+                table.add_row("...", f"[dim]and {len(discussions_list) - 20} more[/dim]", "", "", "", "")
+
+            console.print()
+            console.print(table)
+        else:
+            print_info(f"No discussions found for {repository}")
+
+        print_success(f"Discussions exported to: {dest}")
+        console.print(f"   [dim]Total discussions: {len(discussions_list)}[/dim]")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+# ==============================================================================
+# Configuration Profile Commands
+# ==============================================================================
+
+
+@app.command("config-save")
+def config_save(
+    name: str = typer.Argument(..., help="Profile name"),
+    target_type: str = typer.Option(..., "--type", "-t", help="Target type: 'user' or 'org'"),
+    target_name: str = typer.Option(..., "--name", "-n", help="GitHub username or organization"),
+    dest: str | None = typer.Option(None, "--dest", "-d", help="Destination directory"),
+    visibility: str = typer.Option("all", "--visibility", help="Repository visibility filter"),
+    include_forks: bool = typer.Option(False, "--include-forks", help="Include forked repositories"),
+    include_archived: bool = typer.Option(False, "--include-archived", help="Include archived repositories"),
+    include_issues: bool = typer.Option(False, "--include-issues", help="Include issues in backup"),
+    include_pulls: bool = typer.Option(False, "--include-pulls", help="Include pull requests in backup"),
+    include_releases: bool = typer.Option(False, "--include-releases", help="Include releases in backup"),
+    include_wikis: bool = typer.Option(False, "--include-wikis", help="Include wikis in backup"),
+    parallel_workers: int = typer.Option(4, "--workers", "-w", help="Number of parallel workers"),
+    description: str = typer.Option("", "--description", help="Profile description"),
+) -> None:
+    """
+    Save a backup configuration profile.
+
+    "Save your settings once, use them forever." — schema.cx
+
+    Example:
+        farmore config-save my-backup --type user --name miztizm --include-issues
+        farmore config-save daily-org --type org --name myorg --workers 8
+    """
+    from .config import ConfigManager, create_profile_from_args
+
+    profile = create_profile_from_args(
+        name=name,
+        target_type=target_type,
+        target_name=target_name,
+        dest=dest,
+        visibility=visibility,
+        include_forks=include_forks,
+        include_archived=include_archived,
+        include_issues=include_issues,
+        include_pulls=include_pulls,
+        include_releases=include_releases,
+        include_wikis=include_wikis,
+        parallel_workers=parallel_workers,
+        description=description,
+    )
+
+    manager = ConfigManager()
+    manager.save_profile(profile)
+
+    print_success(f"Profile '{name}' saved successfully!")
+    console.print(f"   [dim]Config path: {manager.get_profile_path()}[/dim]")
+
+
+@app.command("config-load")
+def config_load(
+    name: str = typer.Argument(..., help="Profile name to load"),
+) -> None:
+    """
+    Load and display a saved backup profile.
+
+    "Configuration recall is just organized memory." — schema.cx
+
+    Example:
+        farmore config-load my-backup
+    """
+    from .config import ConfigManager
+
+    manager = ConfigManager()
+    profile = manager.load_profile(name)
+
+    if profile is None:
+        print_error(f"Profile '{name}' not found")
+        sys.exit(1)
+
+    # Display profile as a table
+    table = Table(title=f"⚙️  Profile: {name}", border_style="cyan")
+    table.add_column("Setting", style="bold cyan")
+    table.add_column("Value", style="white")
+
+    table.add_row("Target Type", profile.target_type)
+    table.add_row("Target Name", profile.target_name)
+    table.add_row("Destination", profile.dest or "[dim]Default[/dim]")
+    table.add_row("Visibility", profile.visibility)
+    table.add_row("Include Forks", "Yes" if profile.include_forks else "No")
+    table.add_row("Include Archived", "Yes" if profile.include_archived else "No")
+    table.add_row("Include Issues", "Yes" if profile.include_issues else "No")
+    table.add_row("Include Pulls", "Yes" if profile.include_pulls else "No")
+    table.add_row("Include Releases", "Yes" if profile.include_releases else "No")
+    table.add_row("Include Wikis", "Yes" if profile.include_wikis else "No")
+    table.add_row("Parallel Workers", str(profile.parallel_workers))
+    table.add_row("Description", profile.description or "[dim]No description[/dim]")
+    table.add_row("Created", profile.created_at[:19])
+    table.add_row("Updated", profile.updated_at[:19])
+
+    console.print()
+    console.print(table)
+
+
+@app.command("config-list")
+def config_list() -> None:
+    """
+    List all saved backup profiles.
+
+    "Know your options before you choose." — schema.cx
+
+    Example:
+        farmore config-list
+    """
+    from .config import ConfigManager
+
+    manager = ConfigManager()
+    profiles = manager.list_profiles()
+
+    if not profiles:
+        print_info("No profiles saved yet")
+        console.print("   [dim]Use 'farmore config-save' to create a profile[/dim]")
+        return
+
+    table = Table(title="⚙️  Saved Profiles", border_style="cyan")
+    table.add_column("Name", style="bold")
+    table.add_column("Type", style="cyan")
+    table.add_column("Target", style="green")
+    table.add_column("Description", style="dim", max_width=40)
+    table.add_column("Updated", style="dim")
+
+    for profile in profiles:
+        desc = profile.description[:37] + "..." if len(profile.description) > 40 else profile.description
+        table.add_row(
+            profile.name,
+            profile.target_type,
+            profile.target_name,
+            desc or "[dim]—[/dim]",
+            profile.updated_at[:10],
+        )
+
+    console.print()
+    console.print(table)
+    console.print(f"\n   [dim]Total profiles: {len(profiles)}[/dim]")
+
+
+@app.command("config-delete")
+def config_delete(
+    name: str = typer.Argument(..., help="Profile name to delete"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+) -> None:
+    """
+    Delete a saved backup profile.
+
+    "Sometimes the best configuration is no configuration." — schema.cx
+
+    Example:
+        farmore config-delete my-backup
+        farmore config-delete old-profile --force
+    """
+    from .config import ConfigManager
+
+    manager = ConfigManager()
+
+    if not force:
+        confirm = typer.confirm(f"Delete profile '{name}'?")
+        if not confirm:
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+
+    if manager.delete_profile(name):
+        print_success(f"Profile '{name}' deleted")
+    else:
+        print_error(f"Profile '{name}' not found")
+        sys.exit(1)
+
+
+@app.command("config-export")
+def config_export(
+    name: str = typer.Argument(..., help="Profile name to export"),
+    output: Path = typer.Option(..., "--output", "-o", help="Output file path"),
+) -> None:
+    """
+    Export a profile to a file for sharing.
+
+    "Sharing is caring. Even for configurations." — schema.cx
+
+    Example:
+        farmore config-export my-backup --output ./my-backup.yaml
+    """
+    from .config import ConfigManager
+
+    manager = ConfigManager()
+    if manager.export_profile(name, output):
+        print_success(f"Profile exported to: {output}")
+    else:
+        print_error(f"Profile '{name}' not found")
+        sys.exit(1)
+
+
+@app.command("config-import")
+def config_import(
+    input_file: Path = typer.Argument(..., help="Profile file to import"),
+    name: str | None = typer.Option(None, "--name", "-n", help="Override profile name"),
+) -> None:
+    """
+    Import a profile from a file.
+
+    "Good configurations deserve to be shared." — schema.cx
+
+    Example:
+        farmore config-import ./shared-backup.yaml
+        farmore config-import ./backup.yaml --name my-new-profile
+    """
+    from .config import ConfigManager
+
+    manager = ConfigManager()
+    profile = manager.import_profile(input_file, name)
+
+    if profile:
+        print_success(f"Profile '{profile.name}' imported successfully!")
+    else:
+        print_error(f"Failed to import profile from: {input_file}")
+        sys.exit(1)
+
+
+# ==============================================================================
+# Backup Verification Commands
+# ==============================================================================
+
+
+@app.command("verify")
+def verify_backup(
+    path: Path = typer.Argument(..., help="Path to backup directory or repository"),
+    deep: bool = typer.Option(False, "--deep", help="Perform deep verification (git fsck)"),
+    checksums: bool = typer.Option(False, "--checksums", help="Verify file checksums"),
+) -> None:
+    """
+    Verify backup integrity.
+
+    "Trust, but verify. Especially your backups." — schema.cx
+
+    Checks git repository integrity and optionally verifies checksums.
+
+    Example:
+        farmore verify ./backups/miztizm
+        farmore verify ./backups/miztizm/repos/public/miztizm/farmore --deep
+        farmore verify ./my-backup --deep --checksums
+    """
+    from .verify import BackupVerifier
+
+    console.print(f"\n[cyan]🔍 Verifying backup: {path}[/cyan]")
+    if deep:
+        console.print("   [dim]Deep verification enabled (git fsck)[/dim]")
+    if checksums:
+        console.print("   [dim]Checksum verification enabled[/dim]")
+
+    verifier = BackupVerifier()
+    results = verifier.verify_backup_directory(path, deep=deep, verify_checksums=checksums)
+
+    if not results:
+        # Check if it's a single repository
+        if (path / ".git").exists() or (path / "HEAD").exists():
+            result = verifier.verify_repository(path, deep=deep, verify_checksums=checksums)
+            results = [result]
+        else:
+            print_warning("No repositories found to verify")
+            return
+
+    # Display results
+    valid_count = sum(1 for r in results if r.is_valid)
+    invalid_count = len(results) - valid_count
+
+    table = Table(title="🔍 Verification Results", border_style="cyan")
+    table.add_column("Repository", style="bold")
+    table.add_column("Status", style="cyan")
+    table.add_column("Git", style="green")
+    table.add_column("Issues", style="dim")
+    table.add_column("Duration", justify="right", style="dim")
+
+    for result in results:
+        status = "[green]✓ Valid[/green]" if result.is_valid else "[red]✗ Invalid[/red]"
+        git_status = "[green]OK[/green]" if result.git_valid else "[red]FAIL[/red]"
+
+        issues = []
+        if result.git_errors:
+            issues.extend(result.git_errors[:2])
+        if result.checksum_errors:
+            issues.extend(result.checksum_errors[:2])
+        issues_str = "; ".join(issues[:2]) if issues else "[dim]None[/dim]"
+        if len(issues_str) > 50:
+            issues_str = issues_str[:47] + "..."
+
+        table.add_row(
+            result.repository_name or str(result.path.name),
+            status,
+            git_status,
+            issues_str,
+            f"{result.duration_seconds:.2f}s",
+        )
+
+    console.print()
+    console.print(table)
+
+    # Summary
+    console.print(f"\n   [green]Valid: {valid_count}[/green]  [red]Invalid: {invalid_count}[/red]")
+
+    if invalid_count > 0:
+        sys.exit(1)
+
+    print_success("All backups verified successfully!")
+
+
+# ==============================================================================
+# Backup Scheduling Commands
+# ==============================================================================
+
+
+@app.command("schedule-add")
+def schedule_add(
+    name: str = typer.Argument(..., help="Schedule name"),
+    profile: str = typer.Option(..., "--profile", "-p", help="Profile name to use"),
+    interval: str = typer.Option("daily", "--interval", "-i", help="Backup interval: hourly, daily, weekly, or 'every X hours/days'"),
+    at_time: str | None = typer.Option(None, "--at", help="Time to run (HH:MM format, for daily/weekly)"),
+    on_day: str | None = typer.Option(None, "--on", help="Day to run (for weekly, e.g., 'monday')"),
+) -> None:
+    """
+    Add a scheduled backup.
+
+    "Automation is the art of making the future happen on time." — schema.cx
+
+    Example:
+        farmore schedule-add daily-backup --profile my-backup --interval daily --at 02:00
+        farmore schedule-add weekly-full --profile full-backup --interval weekly --on monday --at 03:00
+        farmore schedule-add frequent --profile quick --interval "every 6 hours"
+    """
+    from .scheduler import BackupScheduler, create_scheduled_backup
+
+    scheduler = BackupScheduler()
+    backup = create_scheduled_backup(
+        name=name,
+        profile_name=profile,
+        interval=interval,
+        at_time=at_time,
+        on_day=on_day,
+    )
+
+    scheduler.add_backup(backup)
+    print_success(f"Scheduled backup '{name}' added!")
+    console.print(f"   [dim]Interval: {interval}[/dim]")
+    if at_time:
+        console.print(f"   [dim]At: {at_time}[/dim]")
+    if on_day:
+        console.print(f"   [dim]On: {on_day}[/dim]")
+
+
+@app.command("schedule-list")
+def schedule_list() -> None:
+    """
+    List all scheduled backups.
+
+    "Know your schedule before time knows you." — schema.cx
+
+    Example:
+        farmore schedule-list
+    """
+    from .scheduler import BackupScheduler
+
+    scheduler = BackupScheduler()
+    backups = scheduler.list_backups()
+
+    if not backups:
+        print_info("No scheduled backups")
+        console.print("   [dim]Use 'farmore schedule-add' to create a schedule[/dim]")
+        return
+
+    table = Table(title="📅 Scheduled Backups", border_style="cyan")
+    table.add_column("Name", style="bold")
+    table.add_column("Profile", style="cyan")
+    table.add_column("Interval", style="green")
+    table.add_column("Enabled", style="yellow")
+    table.add_column("Last Run", style="dim")
+    table.add_column("Status", style="dim")
+
+    for backup in backups:
+        enabled = "[green]Yes[/green]" if backup.enabled else "[dim]No[/dim]"
+        last_run = backup.last_run[:16] if backup.last_run else "[dim]Never[/dim]"
+        status = backup.last_status
+
+        table.add_row(
+            backup.name,
+            backup.profile_name,
+            backup.interval,
+            enabled,
+            last_run,
+            status,
+        )
+
+    console.print()
+    console.print(table)
+
+
+@app.command("schedule-remove")
+def schedule_remove(
+    name: str = typer.Argument(..., help="Schedule name to remove"),
+) -> None:
+    """
+    Remove a scheduled backup.
+
+    "Not all schedules are forever." — schema.cx
+
+    Example:
+        farmore schedule-remove daily-backup
+    """
+    from .scheduler import BackupScheduler
+
+    scheduler = BackupScheduler()
+    if scheduler.remove_backup(name):
+        print_success(f"Schedule '{name}' removed")
+    else:
+        print_error(f"Schedule '{name}' not found")
+        sys.exit(1)
+
+
+@app.command("schedule-run")
+def schedule_run(
+    run_once: bool = typer.Option(False, "--once", help="Run all pending jobs once and exit"),
+) -> None:
+    """
+    Run the backup scheduler daemon.
+
+    "The scheduler never sleeps. So you can." — schema.cx
+
+    This starts a long-running process that executes scheduled backups.
+    Use Ctrl+C to stop the scheduler.
+
+    Example:
+        farmore schedule-run
+        farmore schedule-run --once  # Run pending jobs and exit
+    """
+    from .config import ConfigManager
+    from .scheduler import BackupScheduler
+
+    config_manager = ConfigManager()
+
+    def run_profile_backup(profile_name: str) -> bool:
+        """Execute a backup using a saved profile."""
+        profile = config_manager.load_profile(profile_name)
+        if profile is None:
+            console.print(f"[red]Profile '{profile_name}' not found[/red]")
+            return False
+
+        console.print(f"\n[cyan]🚀 Running backup: {profile_name}[/cyan]")
+
+        # Build config from profile
+        dest = Path(profile.dest) if profile.dest else get_default_user_dest(profile.target_name)
+
+        config = Config(
+            target_type=TargetType.USER if profile.target_type == "user" else TargetType.ORG,
+            target_name=profile.target_name,
+            dest=dest,
+            visibility=Visibility(profile.visibility),
+            include_forks=profile.include_forks,
+            include_archived=profile.include_archived,
+            max_workers=profile.parallel_workers,
+            skip_existing=profile.skip_existing,
+            bare=profile.bare,
+            lfs=profile.lfs,
+        )
+
+        try:
+            orchestrator = MirrorOrchestrator(config)
+            summary = orchestrator.run()
+            return not summary.has_failures
+        except Exception as e:
+            console.print(f"[red]Backup failed: {e}[/red]")
+            return False
+
+    scheduler = BackupScheduler(backup_callback=run_profile_backup)
+
+    console.print("\n[cyan]📅 Starting backup scheduler...[/cyan]")
+    console.print("   [dim]Press Ctrl+C to stop[/dim]")
+
+    try:
+        scheduler.run(run_once=run_once)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Scheduler stopped[/yellow]")
+    except RuntimeError as e:
+        print_error(str(e))
+        console.print("   [dim]Install with: pip install schedule[/dim]")
+        sys.exit(1)
+
+
+# ==============================================================================
+# Restore Commands
+# ==============================================================================
+
+
+@app.command("restore-issues")
+def restore_issues(
+    backup_path: Path = typer.Argument(..., help="Path to issues backup file (JSON)"),
+    target_repo: str = typer.Option(..., "--to", "-t", help="Target repository (owner/repo)"),
+    skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip issues with matching titles"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without creating issues"),
+    token: str | None = typer.Option(None, "--token", envvar="GITHUB_TOKEN", help="GitHub token"),
+) -> None:
+    """
+    Restore issues from a backup to a GitHub repository.
+
+    "Backups are insurance. Restores are the payout." — schema.cx
+
+    Example:
+        farmore restore-issues ./backup/issues.json --to miztizm/new-repo
+        farmore restore-issues ./issues.json --to myorg/myrepo --dry-run
+    """
+    from .restore import RestoreManager
+
+    if not token:
+        print_error("GitHub token required for restore operations")
+        console.print("   [dim]Set GITHUB_TOKEN environment variable or use --token[/dim]")
+        sys.exit(1)
+
+    try:
+        owner, repo = validate_repository_format(target_repo)
+    except ValueError as e:
+        print_error(str(e))
+        sys.exit(1)
+
+    console.print(f"\n[cyan]📥 Restoring issues to: {target_repo}[/cyan]")
+    if dry_run:
+        console.print("   [yellow]DRY RUN - No issues will be created[/yellow]")
+
+    manager = RestoreManager(token)
+    result = manager.restore_issues(
+        backup_path=backup_path,
+        target_repo=target_repo,
+        skip_existing=skip_existing,
+        dry_run=dry_run,
+    )
+
+    # Display results
+    table = Table(title="📥 Restore Results", border_style="cyan")
+    table.add_column("Metric", style="bold cyan")
+    table.add_column("Value", style="white")
+
+    table.add_row("Restored", f"[green]{result.items_restored}[/green]")
+    table.add_row("Skipped", f"[dim]{result.items_skipped}[/dim]")
+    table.add_row("Failed", f"[red]{result.items_failed}[/red]" if result.items_failed else "[green]0[/green]")
+    table.add_row("Duration", f"{result.duration_seconds:.2f}s")
+
+    console.print()
+    console.print(table)
+
+    if result.failed_items:
+        console.print("\n[red]Failed items:[/red]")
+        for item in result.failed_items[:5]:
+            console.print(f"   [red]• {item.get('title', 'Unknown')}: {item.get('error', '')}[/red]")
+
+    if result.success:
+        print_success("Issues restored successfully!")
+    else:
+        print_error(result.error_message or "Some issues failed to restore")
+        sys.exit(1)
+
+
+@app.command("restore-releases")
+def restore_releases(
+    backup_path: Path = typer.Argument(..., help="Path to releases backup file or directory"),
+    target_repo: str = typer.Option(..., "--to", "-t", help="Target repository (owner/repo)"),
+    skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip releases with matching tags"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without creating releases"),
+    token: str | None = typer.Option(None, "--token", envvar="GITHUB_TOKEN", help="GitHub token"),
+) -> None:
+    """
+    Restore releases from a backup to a GitHub repository.
+
+    "Releases are milestones. Restore them carefully." — schema.cx
+
+    Example:
+        farmore restore-releases ./backup/releases/ --to miztizm/new-repo
+        farmore restore-releases ./metadata.json --to myorg/myrepo --dry-run
+    """
+    from .restore import RestoreManager
+
+    if not token:
+        print_error("GitHub token required for restore operations")
+        console.print("   [dim]Set GITHUB_TOKEN environment variable or use --token[/dim]")
+        sys.exit(1)
+
+    try:
+        owner, repo = validate_repository_format(target_repo)
+    except ValueError as e:
+        print_error(str(e))
+        sys.exit(1)
+
+    console.print(f"\n[cyan]📥 Restoring releases to: {target_repo}[/cyan]")
+    if dry_run:
+        console.print("   [yellow]DRY RUN - No releases will be created[/yellow]")
+
+    manager = RestoreManager(token)
+    result = manager.restore_releases(
+        backup_path=backup_path,
+        target_repo=target_repo,
+        skip_existing=skip_existing,
+        dry_run=dry_run,
+    )
+
+    # Display results
+    table = Table(title="📥 Restore Results", border_style="cyan")
+    table.add_column("Metric", style="bold cyan")
+    table.add_column("Value", style="white")
+
+    table.add_row("Restored", f"[green]{result.items_restored}[/green]")
+    table.add_row("Skipped", f"[dim]{result.items_skipped}[/dim]")
+    table.add_row("Failed", f"[red]{result.items_failed}[/red]" if result.items_failed else "[green]0[/green]")
+    table.add_row("Duration", f"{result.duration_seconds:.2f}s")
+
+    console.print()
+    console.print(table)
+
+    if result.failed_items:
+        console.print("\n[red]Failed items:[/red]")
+        for item in result.failed_items[:5]:
+            console.print(f"   [red]• {item.get('tag', 'Unknown')}: {item.get('error', '')}[/red]")
+
+    if result.success:
+        print_success("Releases restored successfully!")
+    else:
+        print_error(result.error_message or "Some releases failed to restore")
+        sys.exit(1)
+
+
+@app.command("restore-labels")
+def restore_labels(
+    backup_path: Path = typer.Argument(..., help="Path to labels backup file (JSON)"),
+    target_repo: str = typer.Option(..., "--to", "-t", help="Target repository (owner/repo)"),
+    skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip labels with matching names"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without creating labels"),
+    token: str | None = typer.Option(None, "--token", envvar="GITHUB_TOKEN", help="GitHub token"),
+) -> None:
+    """
+    Restore labels from a backup to a GitHub repository.
+
+    "Labels bring order to chaos. Restore them wisely." — schema.cx
+
+    Example:
+        farmore restore-labels ./backup/labels.json --to miztizm/new-repo
+        farmore restore-labels ./labels.json --to myorg/myrepo --dry-run
+    """
+    from .restore import RestoreManager
+
+    if not token:
+        print_error("GitHub token required for restore operations")
+        console.print("   [dim]Set GITHUB_TOKEN environment variable or use --token[/dim]")
+        sys.exit(1)
+
+    try:
+        owner, repo = validate_repository_format(target_repo)
+    except ValueError as e:
+        print_error(str(e))
+        sys.exit(1)
+
+    console.print(f"\n[cyan]📥 Restoring labels to: {target_repo}[/cyan]")
+    if dry_run:
+        console.print("   [yellow]DRY RUN - No labels will be created[/yellow]")
+
+    manager = RestoreManager(token)
+    result = manager.restore_labels(
+        backup_path=backup_path,
+        target_repo=target_repo,
+        skip_existing=skip_existing,
+        dry_run=dry_run,
+    )
+
+    # Display results
+    table = Table(title="📥 Restore Results", border_style="cyan")
+    table.add_column("Metric", style="bold cyan")
+    table.add_column("Value", style="white")
+
+    table.add_row("Restored", f"[green]{result.items_restored}[/green]")
+    table.add_row("Skipped", f"[dim]{result.items_skipped}[/dim]")
+    table.add_row("Failed", f"[red]{result.items_failed}[/red]" if result.items_failed else "[green]0[/green]")
+    table.add_row("Duration", f"{result.duration_seconds:.2f}s")
+
+    console.print()
+    console.print(table)
+
+    if result.success:
+        print_success("Labels restored successfully!")
+    else:
+        print_error(result.error_message or "Some labels failed to restore")
+        sys.exit(1)
+
+
+@app.command("restore-milestones")
+def restore_milestones(
+    backup_path: Path = typer.Argument(..., help="Path to milestones backup file (JSON)"),
+    target_repo: str = typer.Option(..., "--to", "-t", help="Target repository (owner/repo)"),
+    skip_existing: bool = typer.Option(True, "--skip-existing/--no-skip-existing", help="Skip milestones with matching titles"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without creating milestones"),
+    token: str | None = typer.Option(None, "--token", envvar="GITHUB_TOKEN", help="GitHub token"),
+) -> None:
+    """
+    Restore milestones from a backup to a GitHub repository.
+
+    "Milestones mark progress. Restore them to continue the journey." — schema.cx
+
+    Example:
+        farmore restore-milestones ./backup/milestones.json --to miztizm/new-repo
+        farmore restore-milestones ./milestones.json --to myorg/myrepo --dry-run
+    """
+    from .restore import RestoreManager
+
+    if not token:
+        print_error("GitHub token required for restore operations")
+        console.print("   [dim]Set GITHUB_TOKEN environment variable or use --token[/dim]")
+        sys.exit(1)
+
+    try:
+        owner, repo = validate_repository_format(target_repo)
+    except ValueError as e:
+        print_error(str(e))
+        sys.exit(1)
+
+    console.print(f"\n[cyan]📥 Restoring milestones to: {target_repo}[/cyan]")
+    if dry_run:
+        console.print("   [yellow]DRY RUN - No milestones will be created[/yellow]")
+
+    manager = RestoreManager(token)
+    result = manager.restore_milestones(
+        backup_path=backup_path,
+        target_repo=target_repo,
+        skip_existing=skip_existing,
+        dry_run=dry_run,
+    )
+
+    # Display results
+    table = Table(title="📥 Restore Results", border_style="cyan")
+    table.add_column("Metric", style="bold cyan")
+    table.add_column("Value", style="white")
+
+    table.add_row("Restored", f"[green]{result.items_restored}[/green]")
+    table.add_row("Skipped", f"[dim]{result.items_skipped}[/dim]")
+    table.add_row("Failed", f"[red]{result.items_failed}[/red]" if result.items_failed else "[green]0[/green]")
+    table.add_row("Duration", f"{result.duration_seconds:.2f}s")
+
+    console.print()
+    console.print(table)
+
+    if result.success:
+        print_success("Milestones restored successfully!")
+    else:
+        print_error(result.error_message or "Some milestones failed to restore")
+        sys.exit(1)
+
+
+# ==============================================================================
+# Projects Command (existing)
+# ==============================================================================
+
+
+@app.command()
+def projects(
+    target: str = typer.Argument(..., help="User/org name or repository in format 'owner/repo'"),
+    dest: Path | None = typer.Option(
+        None,
+        "--dest",
+        "-d",
+        help="Destination file for projects export",
+    ),
+    format: str = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        help="Export format: json or yaml",
+    ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="GitHub Personal Access Token (prefer GITHUB_TOKEN env var)",
+        envvar="GITHUB_TOKEN",
+    ),
+) -> None:
+    """
+    Export GitHub Projects (v2) for a user/org or repository.
+
+    "Projects are just spreadsheets with delusions of grandeur." — schema.cx
+
+    Uses the GitHub GraphQL API to fetch project data.
+
+    Example:
+        farmore projects miztizm  # User/org projects
+        farmore projects miztizm/farmore  # Repository projects
+        farmore projects myorg/myrepo --format yaml
+    """
+    if format.lower() not in ["json", "yaml"]:
+        console.print("[red]❌ Error: Format must be 'json' or 'yaml'[/red]")
+        sys.exit(1)
+
+    # Determine if target is user/org or repo
+    if "/" in target:
+        owner, repo = target.split("/", 1)
+        is_repo = True
+    else:
+        owner = target
+        repo = None
+        is_repo = False
+
+    # Determine destination
+    if dest is None:
+        if is_repo:
+            dest = Path("backups") / owner / "data" / "projects" / f"{owner}_{repo}_projects.{format.lower()}"
+        else:
+            dest = Path("backups") / owner / f"projects.{format.lower()}"
+
+    # Create parent directory
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create config
+    config = Config(
+        target_type=TargetType.USER,
+        target_name=owner,
+        dest=Path("."),
+        token=token,
+    )
+
+    try:
+        client = GitHubAPIClient(config)
+        projects_list = client.get_projects(owner, repo)
+
+        # Convert to dict for export
+        projects_data = {
+            "target": target,
+            "is_repository": is_repo,
+            "total_projects": len(projects_list),
+            "exported_at": datetime.now().isoformat(),
+            "projects": [
+                {
+                    "id": p.id,
+                    "number": p.number,
+                    "title": p.title,
+                    "description": p.description,
+                    "public": p.public,
+                    "closed": p.closed,
+                    "created_at": p.created_at,
+                    "updated_at": p.updated_at,
+                    "html_url": p.html_url,
+                    "items_count": p.items_count,
+                    "fields": p.fields,
+                }
+                for p in projects_list
+            ],
+        }
+
+        # Export to file
+        if format.lower() == "yaml":
+            with open(dest, "w") as f:
+                yaml.dump(projects_data, f, default_flow_style=False, sort_keys=False)
+        else:
+            with open(dest, "w") as f:
+                json.dump(projects_data, f, indent=2)
+
+        # Create summary table
+        if projects_list:
+            table = Table(title=f"📋 Projects: {target}", border_style="cyan")
+            table.add_column("#", style="dim")
+            table.add_column("Title", style="bold", max_width=40)
+            table.add_column("Status", style="cyan")
+            table.add_column("Items", justify="right")
+            table.add_column("Visibility", style="green")
+
+            for p in projects_list:
+                status = "[green]Open[/green]" if not p.closed else "[dim]Closed[/dim]"
+                visibility = "Public" if p.public else "Private"
+
+                table.add_row(
+                    str(p.number),
+                    p.title,
+                    status,
+                    str(p.items_count),
+                    visibility,
+                )
+
+            console.print()
+            console.print(table)
+        else:
+            print_info(f"No projects found for {target}")
+
+        print_success(f"Projects exported to: {dest}")
+        console.print(f"   [dim]Total projects: {len(projects_list)}[/dim]")
+
+    except Exception as e:
+        console.print(f"[red]❌ Error: {e}[/red]")
+        traceback.print_exc()
+        sys.exit(1)
+
+
+# ==============================================================================
+# Analytics Commands
+# ==============================================================================
+
+
+@app.command("analytics")
+def analytics_report(
+    path: Path = typer.Argument(None, help="Path to backup directory (default: backups/)"),
+    format: str = typer.Option("text", "--format", "-f", help="Output format: text, json, or yaml"),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Save report to file"),
+) -> None:
+    """
+    Analyze backup directory and generate statistics report.
+
+    "Data is only as good as the insights you extract." — schema.cx
+
+    Example:
+        farmore analytics
+        farmore analytics ./backups/miztizm
+        farmore analytics --format json --output report.json
+    """
+    from .analytics import BackupAnalytics
+
+    backup_path = path or Path("backups")
+
+    if not backup_path.exists():
+        print_error(f"Backup directory not found: {backup_path}")
+        sys.exit(1)
+
+    console.print(f"\n[cyan]📊 Analyzing backup directory: {backup_path}[/cyan]")
+
+    analytics = BackupAnalytics(backup_path)
+    report = analytics.generate_report(format=format.lower())
+
+    if output:
+        output.write_text(report)
+        print_success(f"Report saved to: {output}")
+    else:
+        console.print(report)
+
+
+@app.command("analytics-history")
+def analytics_history(
+    path: Path = typer.Argument(None, help="Path to backup directory"),
+    limit: int = typer.Option(20, "--limit", "-l", help="Number of history entries to show"),
+) -> None:
+    """
+    Show backup history and statistics.
+
+    "History doesn't repeat, but it does rhyme. Track it." — schema.cx
+
+    Example:
+        farmore analytics-history
+        farmore analytics-history ./backups/miztizm --limit 50
+    """
+    from .analytics import BackupAnalytics
+
+    backup_path = path or Path("backups")
+    analytics = BackupAnalytics(backup_path)
+
+    history = analytics.get_history(limit=limit)
+
+    if not history:
+        print_info("No backup history found")
+        console.print("   [dim]History is recorded after backup operations[/dim]")
+        return
+
+    table = Table(title="📜 Backup History", border_style="cyan")
+    table.add_column("ID", style="dim")
+    table.add_column("Date", style="cyan")
+    table.add_column("Cloned", justify="right", style="green")
+    table.add_column("Updated", justify="right", style="blue")
+    table.add_column("Failed", justify="right", style="red")
+    table.add_column("Duration", justify="right", style="dim")
+    table.add_column("Status")
+
+    for h in reversed(history):
+        status = "[green]✓[/green]" if h.success else "[red]✗[/red]"
+        duration = f"{h.duration_seconds:.1f}s"
+        date = h.started_at[:16] if h.started_at else "?"
+
+        table.add_row(
+            h.backup_id,
+            date,
+            str(h.repos_cloned),
+            str(h.repos_updated),
+            str(h.repos_failed),
+            duration,
+            status,
+        )
+
+    console.print()
+    console.print(table)
+
+    # Show growth stats
+    growth = analytics.get_growth_stats()
+    if growth.get("has_data"):
+        console.print(f"\n   [cyan]📈 Total backups: {growth['backup_count']}[/cyan]")
+        console.print(f"   [dim]Success rate: {growth['success_rate']:.1f}%[/dim]")
+        console.print(f"   [dim]Avg duration: {growth['avg_duration_seconds']:.1f}s[/dim]")
+
+
+# ==============================================================================
+# Diff/Compare Commands
+# ==============================================================================
+
+
+@app.command("diff")
+def diff_backups(
+    old_path: Path = typer.Argument(..., help="Path to old/baseline backup"),
+    new_path: Path = typer.Argument(None, help="Path to new backup (omit to compare with snapshot)"),
+    format: str = typer.Option("text", "--format", "-f", help="Output format: text, json, or yaml"),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Save diff to file"),
+) -> None:
+    """
+    Compare two backup directories and show differences.
+
+    "Change is the only constant. Track it." — schema.cx
+
+    Example:
+        farmore diff ./backups-old ./backups-new
+        farmore diff ./backups  # Compare with last snapshot
+        farmore diff ./backup1 ./backup2 --format json
+    """
+    from .diff import BackupCompare
+
+    compare = BackupCompare()
+
+    if new_path:
+        # Compare two directories
+        if not old_path.exists():
+            print_error(f"Directory not found: {old_path}")
+            sys.exit(1)
+        if not new_path.exists():
+            print_error(f"Directory not found: {new_path}")
+            sys.exit(1)
+
+        console.print(f"\n[cyan]🔍 Comparing backups...[/cyan]")
+        console.print(f"   [dim]Old: {old_path}[/dim]")
+        console.print(f"   [dim]New: {new_path}[/dim]")
+
+        diff = compare.compare_directories(old_path, new_path)
+    else:
+        # Compare with snapshot
+        if not old_path.exists():
+            print_error(f"Directory not found: {old_path}")
+            sys.exit(1)
+
+        console.print(f"\n[cyan]🔍 Comparing with last snapshot...[/cyan]")
+
+        diff = compare.compare_with_snapshot(old_path)
+
+        if diff is None:
+            print_warning("No snapshot found. Create one first with 'farmore snapshot'")
+            sys.exit(1)
+
+    report = compare.generate_diff_report(diff, format=format.lower())
+
+    if output:
+        output.write_text(report)
+        print_success(f"Diff report saved to: {output}")
+    else:
+        console.print(report)
+
+
+@app.command("snapshot")
+def create_snapshot(
+    path: Path = typer.Argument(..., help="Path to backup directory"),
+) -> None:
+    """
+    Create a snapshot of the current backup state for later comparison.
+
+    "Capture the moment. Compare later." — schema.cx
+
+    Example:
+        farmore snapshot ./backups/miztizm
+    """
+    from .diff import BackupCompare
+
+    if not path.exists():
+        print_error(f"Directory not found: {path}")
+        sys.exit(1)
+
+    console.print(f"\n[cyan]📸 Creating snapshot of: {path}[/cyan]")
+
+    compare = BackupCompare()
+    snapshot_path = compare.save_snapshot(path)
+
+    print_success(f"Snapshot saved: {snapshot_path}")
+    console.print("   [dim]Use 'farmore diff' to compare future changes[/dim]")
+
+
+# ==============================================================================
+# Template Commands
+# ==============================================================================
+
+
+@app.command("templates")
+def list_templates(
+    category: str | None = typer.Option(None, "--category", "-c", help="Filter by category"),
+    tag: str | None = typer.Option(None, "--tag", "-t", help="Filter by tag"),
+    builtin_only: bool = typer.Option(False, "--builtin", help="Show only built-in templates"),
+    custom_only: bool = typer.Option(False, "--custom", help="Show only custom templates"),
+) -> None:
+    """
+    List available backup templates.
+
+    "Good templates save time. Great templates save careers." — schema.cx
+
+    Example:
+        farmore templates
+        farmore templates --category org
+        farmore templates --tag scheduled
+    """
+    from .templates import TemplateManager
+
+    manager = TemplateManager()
+
+    if builtin_only:
+        templates = manager.list_builtin()
+    elif custom_only:
+        templates = manager.list_custom()
+    elif category:
+        templates = manager.get_by_category(category)
+    elif tag:
+        templates = manager.get_by_tag(tag)
+    else:
+        templates = manager.list_all()
+
+    if not templates:
+        print_info("No templates found")
+        return
+
+    table = Table(title="📋 Backup Templates", border_style="cyan")
+    table.add_column("ID", style="bold")
+    table.add_column("Name", style="cyan")
+    table.add_column("Category", style="green")
+    table.add_column("Description", style="dim", max_width=40)
+    table.add_column("Tags", style="dim")
+
+    for t in templates:
+        desc = t.description[:37] + "..." if len(t.description) > 40 else t.description
+        tags = ", ".join(t.tags[:3])
+        if len(t.tags) > 3:
+            tags += f" (+{len(t.tags) - 3})"
+
+        table.add_row(t.id, t.name, t.category, desc, tags)
+
+    console.print()
+    console.print(table)
+    console.print(f"\n   [dim]Total templates: {len(templates)}[/dim]")
+    console.print("   [dim]Use 'farmore template-show <id>' for details[/dim]")
+
+
+@app.command("template-show")
+def show_template(
+    template_id: str = typer.Argument(..., help="Template ID"),
+) -> None:
+    """
+    Show details of a backup template.
+
+    Example:
+        farmore template-show user-complete
+        farmore template-show org-compliance
+    """
+    from .templates import TemplateManager
+
+    manager = TemplateManager()
+    template = manager.get(template_id)
+
+    if template is None:
+        print_error(f"Template not found: {template_id}")
+        sys.exit(1)
+
+    table = Table(title=f"📋 Template: {template.name}", border_style="cyan", show_header=False)
+    table.add_column("Setting", style="bold cyan")
+    table.add_column("Value", style="white")
+
+    table.add_row("ID", template.id)
+    table.add_row("Name", template.name)
+    table.add_row("Description", template.description)
+    table.add_row("Category", template.category)
+    table.add_row("Author", template.author)
+    table.add_row("", "")
+    table.add_row("[bold]Target Settings[/bold]", "")
+    table.add_row("Target Type", template.target_type)
+    table.add_row("Visibility", template.visibility)
+    table.add_row("Include Forks", "Yes" if template.include_forks else "No")
+    table.add_row("Include Archived", "Yes" if template.include_archived else "No")
+    if template.name_regex:
+        table.add_row("Name Regex", template.name_regex)
+    table.add_row("", "")
+    table.add_row("[bold]Data Exports[/bold]", "")
+    table.add_row("Issues", "Yes" if template.include_issues else "No")
+    table.add_row("Pull Requests", "Yes" if template.include_pulls else "No")
+    table.add_row("Releases", "Yes" if template.include_releases else "No")
+    table.add_row("Wikis", "Yes" if template.include_wikis else "No")
+    table.add_row("Workflows", "Yes" if template.include_workflows else "No")
+    table.add_row("", "")
+    table.add_row("[bold]Git Options[/bold]", "")
+    table.add_row("Bare/Mirror", "Yes" if template.bare else "No")
+    table.add_row("LFS Support", "Yes" if template.lfs else "No")
+    table.add_row("Skip Existing", "Yes" if template.skip_existing else "No")
+    table.add_row("Parallel Workers", str(template.parallel_workers))
+    table.add_row("", "")
+    table.add_row("Tags", ", ".join(template.tags) if template.tags else "[dim]None[/dim]")
+
+    console.print()
+    console.print(table)
+
+    if template.schedule_interval:
+        console.print(f"\n   [cyan]📅 Schedule: {template.schedule_interval}")
+        if template.schedule_time:
+            console.print(f"      At: {template.schedule_time}[/cyan]")
+
+
+@app.command("template-use")
+def use_template(
+    template_id: str = typer.Argument(..., help="Template ID to use"),
+    target: str = typer.Argument(..., help="GitHub username or organization"),
+    dest: Path | None = typer.Option(None, "--dest", "-d", help="Destination directory"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview without executing"),
+    token: str | None = typer.Option(None, "--token", "-t", envvar="GITHUB_TOKEN", help="GitHub token"),
+) -> None:
+    """
+    Run a backup using a template.
+
+    "Templates turn complex operations into one-liners." — schema.cx
+
+    Example:
+        farmore template-use user-complete miztizm
+        farmore template-use org-compliance myorg --dest ./org-backup
+    """
+    from .templates import TemplateManager
+
+    manager = TemplateManager()
+    template = manager.get(template_id)
+
+    if template is None:
+        print_error(f"Template not found: {template_id}")
+        sys.exit(1)
+
+    console.print(f"\n[cyan]🚀 Using template: {template.name}[/cyan]")
+    console.print(f"   [dim]Target: {target}[/dim]")
+
+    # Build config from template
+    args = manager.apply_template(template_id, target, dest)
+
+    if args is None:
+        print_error("Failed to apply template")
+        sys.exit(1)
+
+    if dry_run:
+        console.print("\n[yellow]DRY RUN - Would execute with:[/yellow]")
+        for key, value in args.items():
+            if value:
+                console.print(f"   {key}: {value}")
+        return
+
+    # Build and run the backup
+    if dest is None:
+        dest = Path("backups") / target
+
+    target_type = TargetType.USER if args["target_type"] == "user" else TargetType.ORG
+
+    config = Config(
+        target_type=target_type,
+        target_name=target,
+        dest=dest,
+        token=token,
+        visibility=Visibility(args["visibility"]),
+        include_forks=args["include_forks"],
+        include_archived=args["include_archived"],
+        exclude_repos=args.get("exclude_repos"),
+        name_regex=args.get("name_regex"),
+        bare=args["bare"],
+        lfs=args["lfs"],
+        skip_existing=args["skip_existing"],
+        max_workers=args["parallel_workers"],
+    )
+
+    orchestrator = MirrorOrchestrator(config)
+    summary = orchestrator.run()
+
+    # Export additional data if requested
+    if any([args.get("include_issues"), args.get("include_pulls"),
+            args.get("include_workflows"), args.get("include_releases"),
+            args.get("include_wikis")]):
+        client = GitHubAPIClient(config)
+        repos = client.get_repositories()
+
+        export_repository_data(
+            client=client,
+            repos=repos,
+            username=target,
+            include_issues=args.get("include_issues", False),
+            include_pulls=args.get("include_pulls", False),
+            include_workflows=args.get("include_workflows", False),
+            include_releases=args.get("include_releases", False),
+            include_wikis=args.get("include_wikis", False),
+            token=token,
+        )
+
+    if summary.has_failures and summary.success_count == 0:
+        sys.exit(1)
+
+
+@app.command("template-create")
+def create_template(
+    template_id: str = typer.Argument(..., help="Unique template ID"),
+    name: str = typer.Option(..., "--name", "-n", help="Template name"),
+    description: str = typer.Option("", "--description", "-d", help="Template description"),
+    from_profile: str | None = typer.Option(None, "--from-profile", help="Create from existing profile"),
+) -> None:
+    """
+    Create a custom backup template.
+
+    Example:
+        farmore template-create my-template --name "My Template" --from-profile daily-backup
+    """
+    from .templates import TemplateManager, BackupTemplate
+
+    manager = TemplateManager()
+
+    if from_profile:
+        template = manager.create_from_profile(
+            profile_name=from_profile,
+            template_id=template_id,
+            template_name=name,
+            description=description,
+        )
+
+        if template is None:
+            print_error(f"Profile not found: {from_profile}")
+            sys.exit(1)
+    else:
+        template = BackupTemplate(
+            id=template_id,
+            name=name,
+            description=description,
+            category="custom",
+        )
+        manager.add_custom(template)
+
+    print_success(f"Template '{template_id}' created!")
+    console.print("   [dim]Use 'farmore template-show' to view details[/dim]")
+
+
+@app.command("template-delete")
+def delete_template(
+    template_id: str = typer.Argument(..., help="Template ID to delete"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+) -> None:
+    """
+    Delete a custom template (built-in templates cannot be deleted).
+
+    Example:
+        farmore template-delete my-template
+    """
+    from .templates import TemplateManager
+
+    manager = TemplateManager()
+
+    # Check if it's a built-in template
+    for t in manager.list_builtin():
+        if t.id == template_id:
+            print_error("Cannot delete built-in templates")
+            sys.exit(1)
+
+    if not force:
+        confirm = typer.confirm(f"Delete template '{template_id}'?")
+        if not confirm:
+            console.print("[yellow]Cancelled[/yellow]")
+            return
+
+    if manager.remove_custom(template_id):
+        print_success(f"Template '{template_id}' deleted")
+    else:
+        print_error(f"Template not found: {template_id}")
+        sys.exit(1)
+
+
+# ==============================================================================
+# Notification Commands
+# ==============================================================================
+
+
+@app.command("notify-test")
+def test_notifications() -> None:
+    """
+    Test all configured notification providers.
+
+    "Test your notifications before disaster strikes." — schema.cx
+
+    Example:
+        farmore notify-test
+    """
+    from .notifications import NotificationManager
+
+    manager = NotificationManager()
+
+    if not manager.providers:
+        print_warning("No notification providers configured")
+        console.print("   [dim]Configure notifications in ~/.config/farmore/.farmore_notifications.json[/dim]")
+        return
+
+    console.print("\n[cyan]🔔 Testing notification providers...[/cyan]")
+
+    results = manager.test_all_providers()
+
+    table = Table(title="🔔 Notification Tests", border_style="cyan")
+    table.add_column("Provider", style="bold")
+    table.add_column("Status")
+    table.add_column("Message", style="dim")
+
+    for provider, (success, message) in results.items():
+        status = "[green]✓ Success[/green]" if success else "[red]✗ Failed[/red]"
+        table.add_row(provider, status, message)
+
+    console.print()
+    console.print(table)
+
+
+@app.command("notify-status")
+def notification_status() -> None:
+    """
+    Show notification configuration status.
+
+    Example:
+        farmore notify-status
+    """
+    from .notifications import NotificationManager
+
+    manager = NotificationManager()
+    config = manager.config
+
+    table = Table(title="🔔 Notification Configuration", border_style="cyan", show_header=False)
+    table.add_column("Setting", style="bold cyan")
+    table.add_column("Value", style="white")
+
+    table.add_row("[bold]Email[/bold]", "")
+    table.add_row("Enabled", "[green]Yes[/green]" if config.email_enabled else "[dim]No[/dim]")
+    if config.email_enabled:
+        table.add_row("SMTP Host", config.email_smtp_host or "[dim]Not set[/dim]")
+        table.add_row("Recipients", ", ".join(config.email_to) if config.email_to else "[dim]None[/dim]")
+
+    table.add_row("", "")
+    table.add_row("[bold]Slack[/bold]", "")
+    table.add_row("Enabled", "[green]Yes[/green]" if config.slack_enabled else "[dim]No[/dim]")
+    if config.slack_enabled:
+        table.add_row("Channel", config.slack_channel or "[dim]Default[/dim]")
+
+    table.add_row("", "")
+    table.add_row("[bold]Discord[/bold]", "")
+    table.add_row("Enabled", "[green]Yes[/green]" if config.discord_enabled else "[dim]No[/dim]")
+
+    table.add_row("", "")
+    table.add_row("[bold]Webhook[/bold]", "")
+    table.add_row("Enabled", "[green]Yes[/green]" if config.webhook_enabled else "[dim]No[/dim]")
+    if config.webhook_enabled:
+        table.add_row("URL", config.webhook_url[:40] + "..." if len(config.webhook_url) > 40 else config.webhook_url)
+
+    table.add_row("", "")
+    table.add_row("[bold]Preferences[/bold]", "")
+    table.add_row("Notify on Success", "Yes" if config.notify_on_success else "No")
+    table.add_row("Notify on Failure", "Yes" if config.notify_on_failure else "No")
+    table.add_row("Notify on Warning", "Yes" if config.notify_on_warning else "No")
+
+    console.print()
+    console.print(table)
+    console.print(f"\n   [dim]Config path: {manager.config_dir / manager.CONFIG_FILE}[/dim]")
 
 
 if __name__ == "__main__":

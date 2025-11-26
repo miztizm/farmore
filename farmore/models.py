@@ -4,6 +4,7 @@ Data models for Farmore.
 "In the end, it's all just data. But organized data? That's power." — schema.cx
 """
 
+import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -93,6 +94,10 @@ class Config:
     include_archived: bool = False
     exclude_org_repos: bool = False  # Exclude organization repositories
     exclude_repos: list[str] | None = None  # List of repo names to exclude
+    name_regex: str | None = None  # Regex pattern to filter repo names
+
+    # Incremental backup options
+    incremental: bool = False  # Only backup repos changed since last backup
 
     # Execution options
     dry_run: bool = False
@@ -180,6 +185,9 @@ class MirrorSummary:
     Summary of all mirror operations.
 
     "Numbers don't lie. Unless they're in a database." — schema.cx
+    
+    Note: This class is thread-safe. The add_result method uses a lock
+    to ensure correct counting when called from multiple threads.
     """
 
     total: int = 0
@@ -188,22 +196,24 @@ class MirrorSummary:
     skipped: int = 0
     failed: int = 0
     errors: list[str] = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
 
     def add_result(self, result: MirrorResult) -> None:
-        """Add a result to the summary."""
-        self.total += 1
+        """Add a result to the summary (thread-safe)."""
+        with self._lock:
+            self.total += 1
 
-        if result.success:
-            if result.action == "cloned":
-                self.cloned += 1
-            elif result.action == "updated":
-                self.updated += 1
-            elif result.action == "skipped":
-                self.skipped += 1
-        else:
-            self.failed += 1
-            if result.error:
-                self.errors.append(f"{result.repo.full_name}: {result.error}")
+            if result.success:
+                if result.action == "cloned":
+                    self.cloned += 1
+                elif result.action == "updated":
+                    self.updated += 1
+                elif result.action == "skipped":
+                    self.skipped += 1
+            else:
+                self.failed += 1
+                if result.error:
+                    self.errors.append(f"{result.repo.full_name}: {result.error}")
 
     @property
     def success_count(self) -> int:
@@ -388,3 +398,132 @@ class ReleaseAsset:
     created_at: str
     updated_at: str
     browser_download_url: str
+
+
+@dataclass
+class Label:
+    """
+    Represents a GitHub label.
+
+    "Labels are just tags with prettier colors." — schema.cx
+    """
+
+    id: int
+    name: str
+    description: str | None
+    color: str  # Hex color without #
+
+
+@dataclass
+class Milestone:
+    """
+    Represents a GitHub milestone.
+
+    "Milestones are just deadlines you can see coming." — schema.cx
+    """
+
+    id: int
+    number: int
+    title: str
+    description: str | None
+    state: str  # "open" or "closed"
+    open_issues: int
+    closed_issues: int
+    created_at: str
+    updated_at: str
+    due_on: str | None
+    closed_at: str | None
+    html_url: str
+
+
+@dataclass
+class Webhook:
+    """
+    Represents a GitHub repository webhook.
+
+    "Webhooks are just callbacks with trust issues." — schema.cx
+    """
+
+    id: int
+    name: str
+    active: bool
+    events: list[str]
+    config: dict  # URL, content_type, etc. (secret redacted)
+    created_at: str
+    updated_at: str
+
+
+@dataclass
+class Follower:
+    """
+    Represents a GitHub follower/following relationship.
+
+    "Followers are just watchers for humans." — schema.cx
+    """
+
+    login: str
+    id: int
+    avatar_url: str
+    html_url: str
+    type: str  # "User" or "Organization"
+
+
+@dataclass
+class Discussion:
+    """
+    Represents a GitHub Discussion.
+
+    "Discussions are just issues that went to therapy." — schema.cx
+    """
+
+    id: str  # GraphQL node ID
+    number: int
+    title: str
+    body: str | None
+    author: str  # Username
+    category: str
+    answer_chosen: bool
+    locked: bool
+    created_at: str
+    updated_at: str
+    html_url: str
+    comments_count: int
+    upvote_count: int
+
+
+@dataclass
+class Project:
+    """
+    Represents a GitHub Project (v2).
+
+    "Projects are just spreadsheets with delusions of grandeur." — schema.cx
+    """
+
+    id: str  # GraphQL node ID
+    number: int
+    title: str
+    description: str | None
+    public: bool
+    closed: bool
+    created_at: str
+    updated_at: str
+    html_url: str
+    items_count: int
+    fields: list[dict] = field(default_factory=list)  # Project fields
+
+
+@dataclass
+class ProjectItem:
+    """
+    Represents an item in a GitHub Project.
+
+    "Project items are just todos with extra steps." — schema.cx
+    """
+
+    id: str  # GraphQL node ID
+    type: str  # "ISSUE", "PULL_REQUEST", "DRAFT_ISSUE"
+    title: str
+    status: str | None  # Status field value
+    created_at: str
+    updated_at: str
+    content_id: str | None  # Issue/PR node ID if linked

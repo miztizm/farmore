@@ -5,6 +5,308 @@ All notable changes to Farmore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2025-11-26
+
+### Added
+- **Deployment Script** - Automated version bump, build, and release workflow
+  - `scripts/deploy.py` - Full deployment automation
+  - Version bump: major, minor, or patch
+  - Automatic version sync across all files
+  - Git commit, tag, and push automation
+  - Dry-run mode for previewing changes
+  - Example: `python scripts/deploy.py minor`
+
+### Changed
+- **README.md** - Refactored for clarity and professionalism
+  - Reduced from 466 lines to 107 lines (77% reduction)
+  - Removed excessive emoji usage
+  - Added table of contents
+  - Consolidated commands into scannable tables
+  - Moved detailed docs to `docs/` folder
+- **License format** - Updated to SPDX expression format
+- **User-Agent header** - Updated to `Farmore/0.9.0`
+
+## [0.8.0] - 2025-11-26
+
+### Added
+- **Analytics Module** - Backup statistics, reporting, and insights
+  - `analytics` command - View backup statistics and generate reports
+  - `analytics-history` command - View backup operation history
+  - Repository statistics: size, commits, branches, tags, languages
+  - Growth tracking and trend analysis
+  - Report generation in text, JSON, or YAML format
+  - Example: `farmore analytics ./backups --format json --output report.json`
+
+- **Diff/Compare Module** - Compare backups and detect changes
+  - `diff` command - Compare two backup directories
+  - `snapshot` command - Create/save backup snapshots
+  - Detect added, removed, and modified repositories
+  - Track file-level changes with hash comparison
+  - Commit diff tracking between backup versions
+  - Example: `farmore diff ./backups/v1 ./backups/v2 --include-files`
+
+- **Notifications Module** - Multi-channel backup notifications
+  - `notify-config` command - Configure notifications
+  - `notify-test` command - Test notification channels
+  - Email notifications via SMTP
+  - Slack notifications via webhook
+  - Discord notifications via webhook
+  - Generic webhook support for custom integrations
+  - Event filtering: success, failure, warning
+  - Example: `farmore notify-config --slack-webhook https://hooks.slack.com/...`
+
+- **Templates Module** - Pre-built backup templates
+  - `templates` command - List available templates
+  - `template-apply` command - Apply a template
+  - `template-create` command - Create custom template
+  - `template-export` command - Export template to file
+  - `template-import` command - Import template from file
+  - Built-in templates:
+    - `user-essential` - Quick backup of user repos
+    - `user-complete` - Full backup with all data exports
+    - `user-mirror` - Bare/mirror clones for true 1:1 backup
+    - `org-essential` - Quick organization backup
+    - `org-complete` - Full org backup with metadata
+    - `org-compliance` - Compliance-focused audit backup
+    - `starred-collection` - Backup starred repositories
+    - `security-audit` - Security-focused backup
+    - `disaster-recovery` - Full mirror for DR scenarios
+    - `incremental-daily` - Daily incremental backup
+    - `incremental-hourly` - Hourly incremental for critical repos
+  - Example: `farmore template-apply org-complete --target my-org`
+
+- **New modules**:
+  - `farmore/analytics.py` - Backup analytics and reporting
+    - `BackupAnalytics` class with full analysis capabilities
+    - `RepositoryStats`, `BackupStats`, `BackupHistory` dataclasses
+    - Language detection across repositories
+    - Category analysis (private, public, starred, forks)
+  - `farmore/diff.py` - Backup comparison engine
+    - `BackupCompare` class for directory comparison
+    - `BackupDiff`, `RepositoryDiff`, `FileChange` dataclasses
+    - Snapshot creation and comparison
+    - Git-level commit tracking
+  - `farmore/notifications.py` - Notification system
+    - `NotificationManager` class for multi-channel notifications
+    - `EmailNotifier`, `SlackNotifier`, `DiscordNotifier`, `WebhookNotifier`
+    - `NotificationConfig` and `NotificationEvent` dataclasses
+    - HTML and plain text email formatting
+  - `farmore/templates.py` - Template management
+    - `TemplateManager` class for template CRUD
+    - `BackupTemplate` dataclass with 20+ configuration options
+    - 11 built-in templates for common scenarios
+    - Custom template creation and sharing
+
+### Changed
+- **Test coverage** - Now 253 tests (up from 152)
+- **User-Agent header** - Updated to `Farmore/0.8.0`
+- **Keywords** - Added "analytics", "notifications" to package metadata
+
+### Notes
+- Analytics history is stored in `.farmore_history.json` within backup directory
+- Snapshots are stored in `.farmore_snapshot.json` for change tracking
+- Notification config stored in `~/.config/farmore/.farmore_notifications.json`
+- Templates stored in `~/.config/farmore/templates.json`
+
+## [0.7.0] - 2025-11-26
+
+### Added
+- **Configuration Profile Management** - Save and reuse backup configurations
+  - `config-save` - Save a backup profile with all options
+  - `config-load` - View a saved profile
+  - `config-list` - List all saved profiles
+  - `config-delete` - Delete a saved profile
+  - `config-export` - Export profile to YAML file for sharing
+  - `config-import` - Import profile from YAML file
+  - Profiles stored in `~/.config/farmore/profiles.yaml`
+  - Example: `farmore config-save daily-backup --type user --name miztizm --include-issues`
+
+- **Backup Verification** - Verify integrity of backups
+  - `verify` command - Check backup integrity
+  - `--deep` flag - Run `git fsck` for thorough verification
+  - `--checksums` flag - Verify file checksums
+  - Detects corrupted repositories and missing files
+  - Example: `farmore verify ./backups/miztizm --deep`
+
+- **Backup Scheduling** - Automated backup scheduling
+  - `schedule-add` - Add a scheduled backup
+  - `schedule-list` - List all schedules
+  - `schedule-remove` - Remove a schedule
+  - `schedule-run` - Run scheduler daemon
+  - Supports intervals: hourly, daily, weekly, "every X hours"
+  - Example: `farmore schedule-add daily-backup --profile my-backup --interval daily --at 02:00`
+
+- **Restore Functionality** - Restore backups to GitHub
+  - `restore-issues` - Restore issues from backup
+  - `restore-releases` - Restore releases from backup
+  - `restore-labels` - Restore labels from backup
+  - `restore-milestones` - Restore milestones from backup
+  - `--dry-run` flag - Preview without creating items
+  - `--skip-existing` flag - Skip items that already exist
+  - Example: `farmore restore-issues ./backup/issues.json --to owner/repo`
+
+- **New modules**:
+  - `farmore/config.py` - Configuration profile management
+    - `BackupProfile` dataclass
+    - `ConfigManager` class for CRUD operations
+  - `farmore/verify.py` - Backup verification
+    - `BackupVerifier` class
+    - `VerificationResult` dataclass
+    - Deep git fsck verification
+    - Checksum verification
+  - `farmore/scheduler.py` - Backup scheduling
+    - `BackupScheduler` class
+    - `ScheduledBackup` dataclass
+    - Integration with `schedule` library
+  - `farmore/restore.py` - Restore functionality
+    - `RestoreManager` class
+    - Support for issues, releases, labels, milestones
+
+### Changed
+- **Dependencies** - Added `schedule>=1.2.0` for scheduling support
+- **User-Agent header** - Updated to `Farmore/0.7.0`
+- **Keywords** - Added "restore", "scheduler" to package metadata
+
+### Notes
+- Scheduler requires the `schedule` library (included in dependencies)
+- Restore operations require GitHub token with write access
+- Profiles are stored locally and can be exported for team sharing
+
+## [0.6.0] - 2025-11-26
+
+### Added
+- **`labels` command** - Export all labels from a repository
+  - Export to JSON or YAML format
+  - Includes label ID, name, description, and color
+  - Example: `farmore labels miztizm/farmore --format yaml`
+
+- **`milestones` command** - Export all milestones from a repository
+  - Export to JSON or YAML format
+  - `--state` filter: 'open', 'closed', or 'all'
+  - Includes progress tracking (open/closed issues)
+  - Example: `farmore milestones myorg/myrepo --state open`
+
+- **`webhooks` command** - Export webhook configuration
+  - Requires admin access to the repository
+  - Secrets are automatically redacted for security
+  - Export to JSON or YAML format
+  - Example: `farmore webhooks myorg/myrepo`
+
+- **`followers` command** - Export followers and following lists
+  - `--include-following` flag to export both directions
+  - Works for authenticated user or specified username
+  - Export to JSON or YAML format
+  - Example: `farmore followers miztizm --include-following`
+
+- **`discussions` command** - Export GitHub Discussions
+  - Uses GraphQL API for complete discussion data
+  - Includes category, upvote count, answer status
+  - Example: `farmore discussions miztizm/farmore`
+
+- **`projects` command** - Export GitHub Projects (v2)
+  - Supports user/org level and repository level projects
+  - Uses GraphQL API for complete project data
+  - Includes fields, items count, status
+  - Example: `farmore projects miztizm` or `farmore projects miztizm/farmore`
+
+- **`--name-regex` / `-N` option** - Filter repos by name pattern
+  - Available in `user` and `org` commands
+  - Uses Python regex syntax
+  - Example: `farmore user miztizm --name-regex '^my-prefix-.*'`
+
+- **`--incremental` / `-i` flag** - Incremental backup support
+  - Available in `user` and `org` commands
+  - Infrastructure for tracking backup state (to be wired in future release)
+  - Example: `farmore user miztizm --incremental`
+
+- **New data models**:
+  - `Label` - Repository label with color
+  - `Milestone` - Project milestone with progress
+  - `Webhook` - Repository webhook configuration
+  - `Follower` - User follower/following relationship
+  - `Discussion` - GitHub Discussion with GraphQL fields
+  - `Project` - GitHub Project v2 with fields
+  - `ProjectItem` - Item within a project
+
+- **New API methods in `GitHubAPIClient`**:
+  - `get_labels()` - Fetch repository labels
+  - `get_milestones()` - Fetch repository milestones
+  - `get_webhooks()` - Fetch repository webhooks
+  - `get_followers()` - Fetch user followers
+  - `get_following()` - Fetch users being followed
+  - `get_discussions()` - Fetch discussions via GraphQL
+  - `get_projects()` - Fetch projects via GraphQL
+
+- **Incremental backup infrastructure**:
+  - `farmore/incremental.py` - State management module
+  - `BackupState` dataclass for tracking backups
+  - `IncrementalBackupManager` for state persistence
+
+### Changed
+- **Repository filtering** - Added regex pattern matching
+  - New `name_regex` field in Config
+  - Applied during `_filter_repositories()` in API client
+- **Config model** - Extended with new options:
+  - `name_regex: str | None` - Regex pattern for repo name filtering
+  - `incremental: bool` - Enable incremental backup mode
+- **User-Agent header** - Updated to `Farmore/0.6.0`
+
+### Notes
+- GraphQL API calls require authentication (for discussions and projects)
+- Webhook export requires admin access to the repository
+- Incremental flag is infrastructure-ready but state tracking integration 
+  will be completed in a future release
+
+## [0.5.0] - 2025-11-26
+
+### Added
+- **`gists` command** - Backup all gists for a user
+  - Clone gists as git repositories with full history
+  - `--starred` flag to include starred gists
+  - Support for GitHub Enterprise via `--github-host`
+  - `--skip-existing` flag for incremental backups
+  - Automatic deduplication of starred gists
+  - Example: `farmore gists miztizm --starred`
+
+- **`attachments` command** - Download attachments from issues and PRs
+  - Extract images and files from issue/PR bodies and comments
+  - Support for GitHub's new user-attachments URLs
+  - Support for private-user-images URLs
+  - Checksum tracking for integrity verification
+  - Collision handling with unique filename generation
+  - Manifest file (manifest.json) for tracking downloads
+  - `--source` option: 'issues', 'pulls', or 'all'
+  - Example: `farmore attachments miztizm/farmore --source all`
+
+- **New modules**:
+  - `farmore/gists.py` - Gists API client and backup handler
+    - `GistsClient` - API client for gist operations
+    - `GistsBackup` - Clone and update gists as repositories
+    - `Gist` and `GistFile` data models
+  - `farmore/attachments.py` - Attachment extraction and download
+    - `AttachmentExtractor` - Extract URLs from markdown content
+    - `AttachmentDownloader` - Download with checksum and collision handling
+    - `AttachmentManifest` - Track download results and metadata
+    - Support for 6+ GitHub attachment URL patterns
+
+### Changed
+- **Docker image** - Enhanced for production use
+  - Non-root user for improved security
+  - Health check endpoint
+  - CA certificates and timezone support
+  - Usage examples in Dockerfile comments
+  - Version updated to 0.5.0
+
+- **User-Agent header** - Updated to `Farmore/0.5.0`
+
+### Documentation
+- **COMPETITIVE_ANALYSIS.md** - Updated with Phase 2 implementation status
+  - `--exclude` filter ✅ (v0.4.0)
+  - `--skip-existing` flag ✅ (v0.4.0)
+  - Docker support ✅ (v0.4.0, enhanced v0.5.0)
+  - Gists backup ✅ (v0.5.0)
+  - Attachment downloads ✅ (v0.5.0)
+
 ## [0.4.0] - 2025-11-26
 
 ### Added
@@ -58,12 +360,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MirrorOrchestrator** - Passes `bare` and `lfs` options through to git operations
 - **User-Agent header** - Updated to `Farmore/0.4.0`
 
-### Documentation
-- **COMPETITIVE_ANALYSIS.md** - Comprehensive competitor analysis vs python-github-backup
-  - Feature-by-feature comparison table
-  - Prioritized improvement roadmap
-  - Implementation code examples
-  - Strategic recommendations
 
 ## [0.3.5] - 2025-11-21
 

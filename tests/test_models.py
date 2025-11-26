@@ -4,6 +4,8 @@ Tests for data models.
 "Models are just structured assumptions. Test them." — schema.cx
 """
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from farmore.models import (
@@ -150,3 +152,37 @@ def test_target_type_enum() -> None:
     """Test target type enum values."""
     assert TargetType.USER.value == "user"
     assert TargetType.ORG.value == "org"
+
+
+def test_mirror_summary_thread_safety() -> None:
+    """Test that MirrorSummary.add_result is thread-safe."""
+    summary = MirrorSummary()
+    repo = Repository(
+        name="test",
+        full_name="owner/test",
+        owner="owner",
+        ssh_url="git@github.com:owner/test.git",
+        clone_url="https://github.com/owner/test.git",
+        default_branch="main",
+    )
+    
+    num_threads = 10
+    results_per_thread = 100
+    total_expected = num_threads * results_per_thread
+    
+    def add_results() -> None:
+        for _ in range(results_per_thread):
+            result = MirrorResult(repo=repo, success=True, action="cloned", message="OK")
+            summary.add_result(result)
+    
+    # Run concurrent additions
+    with ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(add_results) for _ in range(num_threads)]
+        for future in futures:
+            future.result()
+    
+    # Verify counts are correct
+    assert summary.total == total_expected
+    assert summary.cloned == total_expected
+    assert summary.updated == 0
+    assert summary.failed == 0
