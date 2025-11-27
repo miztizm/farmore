@@ -59,3 +59,4 @@ docs/
 # OS
 .DS_Store
 Thumbs.db
+debug.log
