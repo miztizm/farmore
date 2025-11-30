@@ -5,6 +5,42 @@ All notable changes to Farmore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2025-11-30
+
+### Added
+- **Repository Transfer Feature** - Transfer repositories to organizations via GitHub API
+  - `transfer` command - Transfer one or multiple repositories to a target organization
+  - Pre-transfer validation checks:
+    - Admin access verification on source repository
+    - Target organization existence check
+    - Organization membership verification
+    - Repository name availability check
+  - `--dry-run` flag - Validate without executing transfer
+  - `--new-name` option - Rename repository during transfer
+  - `--team-ids` option - Grant team access after transfer
+  - Multiple repository support via comma-separated list or @file.txt
+  - Rich formatted output with progress indicators
+  - Comprehensive error handling for 401/403/404/422 responses
+  - Rate limit handling
+  - Example: `farmore transfer my-repo --org my-org --dry-run`
+
+- **New modules**:
+  - `farmore/transfer.py` - Repository transfer functionality
+    - `TransferClient` class for GitHub API integration
+    - `TransferResult` and `TransferSummary` dataclasses
+    - `validate_repo_name()` and `validate_org_name()` functions
+    - `parse_repo_list()` and `parse_team_ids()` helper functions
+
+- **New tests**:
+  - `tests/test_transfer.py` - 46 comprehensive unit tests
+    - Validation function tests
+    - TransferClient method tests with mocked API responses
+    - Error handling tests for various HTTP status codes
+    - Dry-run mode tests
+
+### Changed
+- **User-Agent header** - Updated to `Farmore/0.10.0`
+
 ## [0.9.0] - 2025-11-26
 
 ### Added

@@ -4631,5 +4631,176 @@ def notification_status() -> None:
     console.print(f"\n   [dim]Config path: {manager.config_dir / manager.CONFIG_FILE}[/dim]")
 
 
+@app.command()
+def transfer(
+    repos: str = typer.Argument(
+        ...,
+        help="Repository name(s): single name, comma-separated, or @file.txt",
+    ),
+    org: str = typer.Option(
+        ...,
+        "--org",
+        "-o",
+        help="Target organization name (required)",
+    ),
+    source_owner: str | None = typer.Option(
+        None,
+        "--source-owner",
+        "--owner",
+        help="Source owner username (default: authenticated user)",
+    ),
+    new_name: str | None = typer.Option(
+        None,
+        "--new-name",
+        "-n",
+        help="New repository name (only valid for single repo transfer)",
+    ),
+    team_ids: str | None = typer.Option(
+        None,
+        "--team-ids",
+        help="Comma-separated team IDs to grant access",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Validate only, do not execute transfer",
+    ),
+    token: str | None = typer.Option(
+        None,
+        "--token",
+        "-t",
+        help="GitHub Personal Access Token (prefer GITHUB_TOKEN env var)",
+        envvar="GITHUB_TOKEN",
+    ),
+) -> None:
+    """
+    Transfer repository(ies) to a GitHub organization.
+
+    "Moving repos is like moving houses. Don't forget the keys." — schema.cx
+
+    ⚠️  WARNING: Repository transfers are significant operations. Use --dry-run first!
+
+    Example:
+        farmore transfer my-repo --org my-org
+        farmore transfer repo1,repo2,repo3 --org my-org
+        farmore transfer @repos.txt --org my-org
+        farmore transfer my-repo --org my-org --new-name new-repo-name
+        farmore transfer my-repo --org my-org --dry-run
+    """
+    from .transfer import (
+        TransferClient,
+        TransferError,
+        TransferSummary,
+        parse_repo_list,
+        parse_team_ids,
+        validate_org_name,
+        validate_repo_name,
+    )
+    from rich.panel import Panel
+
+    # Validate token
+    if not token:
+        print_error("GitHub token is required. Set GITHUB_TOKEN environment variable or use --token")
+        sys.exit(1)
+
+    # Validate organization name
+    org_valid, org_msg = validate_org_name(org)
+    if not org_valid:
+        print_error(f"Invalid organization name: {org_msg}")
+        sys.exit(1)
+
+    # Parse repository list
+    try:
+        repo_list = parse_repo_list(repos)
+    except ValueError as e:
+        print_error(str(e))
+        sys.exit(1)
+
+    if not repo_list:
+        print_error("No repositories specified")
+        sys.exit(1)
+
+    # Validate new_name is only used with single repo
+    if new_name and len(repo_list) > 1:
+        print_error("--new-name can only be used when transferring a single repository")
+        sys.exit(1)
+
+    # Validate repository names
+    for repo_name in repo_list:
+        valid, msg = validate_repo_name(repo_name)
+        if not valid:
+            print_error(f"Invalid repository name '{repo_name}': {msg}")
+            sys.exit(1)
+
+    # Parse team IDs
+    try:
+        team_id_list = parse_team_ids(team_ids)
+    except ValueError as e:
+        print_error(str(e))
+        sys.exit(1)
+
+    # Display transfer plan
+    mode_text = "[yellow]DRY RUN[/yellow]" if dry_run else "[red]LIVE[/red]"
+    console.print(Panel(
+        f"[bold]Repository Transfer[/bold]\n\n"
+        f"Mode: {mode_text}\n"
+        f"Repositories: {len(repo_list)}\n"
+        f"Target Organization: [cyan]{org}[/cyan]\n"
+        f"{'New Name: ' + new_name if new_name else ''}",
+        title="🚀 Transfer Plan",
+        border_style="cyan",
+    ))
+
+    try:
+        with TransferClient(token) as client:
+            # Get source owner (default to authenticated user)
+            if source_owner is None:
+                source_owner = client.get_authenticated_user()
+                console.print(f"[dim]Using authenticated user as source: {source_owner}[/dim]")
+
+            summary = TransferSummary()
+
+            for repo_name in repo_list:
+                result = client.transfer_repository(
+                    source_owner=source_owner,
+                    repo_name=repo_name,
+                    target_org=org,
+                    new_name=new_name if len(repo_list) == 1 else None,
+                    team_ids=team_id_list,
+                    dry_run=dry_run,
+                )
+                summary.add_result(result)
+
+            # Print summary
+            console.print("\n" + "=" * 60)
+            console.print("[bold]Transfer Summary[/bold]")
+            console.print("=" * 60)
+
+            if dry_run:
+                console.print(f"[yellow]DRY RUN - No transfers were executed[/yellow]")
+
+            console.print(f"Total: {summary.total}")
+            console.print(f"[green]Successful: {summary.successful}[/green]")
+            console.print(f"[red]Failed: {summary.failed}[/red]")
+
+            if summary.failed_repos:
+                console.print("\n[red]Failed Transfers:[/red]")
+                for result in summary.failed_repos:
+                    console.print(f"  • {result.repo_name}: {result.error}")
+
+            # Exit code
+            if summary.failed > 0:
+                sys.exit(1)
+            sys.exit(0)
+
+    except TransferError as e:
+        print_error(str(e))
+        sys.exit(1)
+    except Exception as e:
+        print_error(f"Unexpected error: {e}")
+        traceback.print_exc()
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     app()
