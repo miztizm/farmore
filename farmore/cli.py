@@ -479,8 +479,15 @@ def user(
         None,
         "--github-host",
         "-H",
-        help="GitHub Enterprise hostname (e.g., github.mycompany.com)",
+        help="GitHub Enterprise hostname (e.g., github.mycompany.com) - DEPRECATED, use --api-url",
         envvar="GITHUB_HOST",
+    ),
+    api_url: str | None = typer.Option(
+        None,
+        "--api-url",
+        "-A",
+        help="GitHub API base URL (e.g., https://api.orgname.ghe.com for Enterprise)",
+        envvar="GITHUB_API_URL",
     ),
     token: str | None = typer.Option(
         None,
@@ -533,6 +540,7 @@ def user(
         lfs=lfs,
         max_workers=max_workers,
         github_host=github_host,
+        github_api_url=api_url or "https://api.github.com",
     )
 
     orchestrator = MirrorOrchestrator(config)
@@ -662,8 +670,15 @@ def org(
         None,
         "--github-host",
         "-H",
-        help="GitHub Enterprise hostname (e.g., github.mycompany.com)",
+        help="GitHub Enterprise hostname (e.g., github.mycompany.com) - DEPRECATED, use --api-url",
         envvar="GITHUB_HOST",
+    ),
+    api_url: str | None = typer.Option(
+        None,
+        "--api-url",
+        "-A",
+        help="GitHub API base URL (e.g., https://api.orgname.ghe.com for Enterprise)",
+        envvar="GITHUB_API_URL",
     ),
     token: str | None = typer.Option(
         None,
@@ -713,6 +728,7 @@ def org(
         lfs=lfs,
         max_workers=max_workers,
         github_host=github_host,
+        github_api_url=api_url or "https://api.github.com",
     )
 
     orchestrator = MirrorOrchestrator(config)
@@ -1389,7 +1405,7 @@ def repo(
                 console.print(f"[yellow]⚠️  Update failed: {result[1]}[/yellow]")
         else:
             console.print(f"   Cloning repository...")
-            result = GitOperations.clone(repo_info, dest, use_ssh=use_ssh)
+            result = GitOperations.clone(repo_info, dest, use_ssh=use_ssh, github_url=config.get_github_url())
             if result[0]:
                 console.print(f"[green]✅ Repository cloned: {dest}[/green]")
             else:
@@ -2292,8 +2308,15 @@ def gists(
         None,
         "--github-host",
         "-H",
-        help="GitHub Enterprise hostname (e.g., github.mycompany.com)",
+        help="GitHub Enterprise hostname (e.g., github.mycompany.com) - DEPRECATED, use --api-url",
         envvar="GITHUB_HOST",
+    ),
+    api_url: str | None = typer.Option(
+        None,
+        "--api-url",
+        "-A",
+        help="GitHub API base URL (e.g., https://api.orgname.ghe.com for Enterprise)",
+        envvar="GITHUB_API_URL",
     ),
     token: str | None = typer.Option(
         None,
@@ -2327,7 +2350,7 @@ def gists(
         console.print(f"   [dim]GitHub Enterprise: {github_host}[/dim]")
 
     try:
-        with GistsBackup(token=token, github_host=github_host, dest=dest.parent) as backup:
+        with GistsBackup(token=token, github_host=github_host, github_api_url=api_url or "https://api.github.com", dest=dest.parent) as backup:
             summary = backup.backup_user_gists(
                 username=username,
                 include_starred=include_starred,

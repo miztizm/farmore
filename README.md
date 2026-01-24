@@ -49,7 +49,7 @@
 - **Organized structure** - Clean directory organization separating code from data
 - **Cross-platform** - Works on Linux, macOS, and Windows
 - **Beautiful CLI** - Powered by Typer and Rich with progress bars
-- **GitHub Enterprise** - Support via `--github-host` flag
+- **GitHub Enterprise** - Support for custom API endpoints via `--api-url` / `GITHUB_API_URL`
 - **Discussions backup** - Export repository discussions (GraphQL API)
 - **Projects backup** - Export Projects v2 data (GraphQL API)
 
@@ -262,6 +262,74 @@ echo "GITHUB_TOKEN=ghp_your_token_here" > .env
 - ✅ Use minimal required permissions
 - ❌ Never commit tokens to version control
 - ❌ Avoid `--token` flag (exposes in shell history)
+
+---
+
+## 🏢 GitHub Enterprise Support
+
+Farmore supports GitHub Enterprise Server and GitHub Enterprise Cloud with custom data residency.
+
+### Using Custom API Endpoint
+
+For GitHub Enterprise instances with local data residency (e.g., `https://api.orgname.ghe.com`):
+
+```bash
+# Using environment variable (recommended)
+export GITHUB_API_URL="https://api.orgname.ghe.com"
+export GITHUB_TOKEN="ghp_your_token_here"
+farmore user myusername
+
+# Or using CLI flag
+farmore user myusername --api-url "https://api.orgname.ghe.com"
+```
+
+### Legacy Hostname Support (Deprecated)
+
+The `--github-host` flag is still supported for backward compatibility but is deprecated:
+
+```bash
+# This is deprecated, use --api-url instead
+farmore user myusername --github-host "github.mycompany.com"
+```
+
+### Configuration Priority
+
+When both options are provided, the priority is:
+1. **`--api-url`** / `GITHUB_API_URL` (preferred)
+2. **`--github-host`** / `GITHUB_HOST` (legacy, auto-constructs API URL)
+3. Default: `https://api.github.com`
+
+### Examples
+
+```bash
+# GitHub Enterprise Cloud with data residency
+export GITHUB_API_URL="https://api.acme.ghe.com"
+export GITHUB_TOKEN="ghp_enterprise_token"
+farmore org acme-corp --include-all
+
+# GitHub Enterprise Server
+farmore user john --api-url "https://github.internal.company.com/api/v3"
+
+# All commands support the --api-url option
+farmore gists --api-url "https://api.enterprise.ghe.com"
+farmore search "machine learning" --api-url "https://api.enterprise.ghe.com"
+```
+
+### SSH Setup for GitHub Enterprise
+
+When using SSH with GitHub Enterprise, ensure the host key is in your `known_hosts`:
+
+```bash
+# Add the GitHub Enterprise host key
+ssh-keyscan -H acme.ghe.com >> ~/.ssh/known_hosts
+
+# Or manually clone once to accept the host key
+ssh -T git@acme.ghe.com
+```
+
+If you encounter "Host key verification failed", you can either:
+1. Add the host key as shown above
+2. Use HTTPS instead of SSH with `--use-ssh=false`
 
 ---
 

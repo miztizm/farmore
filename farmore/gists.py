@@ -69,12 +69,15 @@ class GistsClient:
 
     PER_PAGE = 100
 
-    def __init__(self, token: str | None = None, github_host: str | None = None) -> None:
+    def __init__(self, token: str | None = None, github_api_url: str = "https://api.github.com", github_host: str | None = None) -> None:
         """Initialize the Gists API client."""
         self.session = requests.Session()
 
-        # Support GitHub Enterprise
-        if github_host:
+        # Support GitHub Enterprise with custom API URL or hostname
+        if github_api_url and github_api_url != "https://api.github.com":
+            self.base_url = github_api_url.rstrip('/')
+        elif github_host:
+            # Fallback to legacy github_host for backward compatibility
             self.base_url = f"https://{github_host}/api/v3"
         else:
             self.base_url = "https://api.github.com"
@@ -276,6 +279,7 @@ class GistsBackup:
     def __init__(
         self,
         token: str | None = None,
+        github_api_url: str = "https://api.github.com",
         github_host: str | None = None,
         dest: Path | None = None,
     ) -> None:
@@ -284,10 +288,11 @@ class GistsBackup:
 
         Args:
             token: GitHub personal access token
-            github_host: GitHub Enterprise hostname (optional)
+            github_api_url: GitHub API base URL (supports Enterprise)
+            github_host: GitHub Enterprise hostname (deprecated, use github_api_url)
             dest: Base destination directory for gist backups
         """
-        self.client = GistsClient(token=token, github_host=github_host)
+        self.client = GistsClient(token=token, github_api_url=github_api_url, github_host=github_host)
         self.dest = dest or Path("backups/gists")
         self.token = token
 

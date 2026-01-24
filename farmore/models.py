@@ -110,7 +110,8 @@ class Config:
     lfs: bool = False  # Use Git LFS for cloning
 
     # GitHub Enterprise support
-    github_host: str | None = None  # GitHub Enterprise hostname
+    github_host: str | None = None  # GitHub Enterprise hostname (deprecated, use github_api_url)
+    github_api_url: str = "https://api.github.com"  # GitHub API base URL (supports Enterprise)
 
     # Repository categorization (for organizing backups by type)
     repository_category: RepositoryCategory | None = None
@@ -128,6 +129,41 @@ class Config:
         # Initialize exclude_repos as empty list if None
         if self.exclude_repos is None:
             self.exclude_repos = []
+
+    def get_github_url(self) -> str:
+        """
+        Get the GitHub base URL for git operations (not API URL).
+        
+        Converts API URLs to git URLs:
+        - https://api.github.com -> https://github.com
+        - https://api.acme.ghe.com -> https://acme.ghe.com
+        - https://github.company.com/api/v3 -> https://github.company.com
+        
+        Returns:
+            Base GitHub URL for git clone operations
+        """
+        # If using custom API URL
+        if self.github_api_url and self.github_api_url != "https://api.github.com":
+            api_url = self.github_api_url.rstrip('/')
+            
+            # Remove /api/v3 suffix if present (GitHub Enterprise Server format)
+            if api_url.endswith("/api/v3"):
+                return api_url[:-7]  # Remove /api/v3
+            
+            # Convert api. subdomain to root domain (GitHub Enterprise Cloud format)
+            # https://api.acme.ghe.com -> https://acme.ghe.com
+            if "api." in api_url:
+                return api_url.replace("api.", "")
+            
+            # Otherwise, use as-is
+            return api_url
+        
+        # Fallback to legacy github_host
+        if self.github_host:
+            return f"https://{self.github_host}"
+        
+        # Default to public GitHub
+        return "https://github.com"
 
     def get_repo_category_path(self, repo: Repository) -> Path:
         """

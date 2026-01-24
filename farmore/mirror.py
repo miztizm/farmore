@@ -220,6 +220,7 @@ class MirrorOrchestrator:
                 use_ssh=True,
                 bare=self.config.bare,
                 lfs=self.config.lfs,
+                github_url=self.config.get_github_url(),
             )
             if success:
                 return True, message
@@ -231,6 +232,7 @@ class MirrorOrchestrator:
                     use_ssh=False,
                     bare=self.config.bare,
                     lfs=self.config.lfs,
+                    github_url=self.config.get_github_url(),
                 )
                 if success:
                     return True, f"{message} (via HTTPS)"
@@ -243,6 +245,7 @@ class MirrorOrchestrator:
                 use_ssh=False,
                 bare=self.config.bare,
                 lfs=self.config.lfs,
+                github_url=self.config.get_github_url(),
             )
 
     def _print_result(self, result: MirrorResult) -> None:
