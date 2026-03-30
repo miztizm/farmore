@@ -75,6 +75,7 @@ class GitOperations:
         use_ssh: bool = True,
         bare: bool = False,
         lfs: bool = False,
+        github_url: str = "https://github.com",
     ) -> tuple[bool, str]:
         """
         Clone a repository.
@@ -87,13 +88,34 @@ class GitOperations:
             use_ssh: Whether to use SSH (True) or HTTPS (False)
             bare: Whether to create a bare/mirror clone (preserves all refs)
             lfs: Whether to use Git LFS for cloning (for repos with large files)
+            github_url: Base GitHub URL for composing clone URLs (default: https://github.com)
 
         Returns:
             Tuple of (success, message)
         """
-        # Choose URL based on protocol preference
-        url = repo.ssh_url if use_ssh else repo.clone_url
-
+        github_url = github_url.rstrip('/')
+        
+        # If using a custom GitHub URL (not public github.com), always compose the URL
+        # This ensures Enterprise instances use the correct domain
+        if github_url != "https://github.com":
+            if use_ssh:
+                # Compose SSH URL: git@github.company.com:owner/repo.git
+                github_host = github_url.replace("https://", "").replace("http://", "")
+                url = f"git@{github_host}:{repo.full_name}.git"
+            else:
+                # Compose HTTPS URL: https://github.company.com/owner/repo.git
+                url = f"{github_url}/{repo.full_name}.git"
+        else:
+            # For public GitHub, use the URLs from the API (or compose if empty)
+            url = repo.ssh_url if use_ssh else repo.clone_url
+            
+            # If URL is empty or None, compose it from github_url
+            if not url or url.strip() == "":
+                if use_ssh:
+                    url = f"git@github.com:{repo.full_name}.git"
+                else:
+                    url = f"{github_url}/{repo.full_name}.git"
+        
         # Ensure parent directory exists
         dest_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -118,7 +140,7 @@ class GitOperations:
                 capture_output=True,
                 text=True,
                 check=True,
-                timeout=600 if lfs else 300,  # 10 min for LFS, 5 min otherwise
+                timeout=1800 if lfs else 900,  # 30 min for LFS, 15 min for regular clones
             )
             
             # Build success message

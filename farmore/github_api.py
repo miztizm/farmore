@@ -127,8 +127,12 @@ class GitHubAPIClient:
         self.config = config
         self.session = requests.Session()
 
-        # Support GitHub Enterprise with custom hostname
-        if config.github_host:
+        # Support GitHub Enterprise with custom API URL or hostname
+        if config.github_api_url and config.github_api_url != "https://api.github.com":
+            self.BASE_URL = config.github_api_url.rstrip('/')
+            console.print(f"[cyan]🏢 Using custom GitHub API: {config.github_api_url}[/cyan]")
+        elif config.github_host:
+            # Fallback to legacy github_host for backward compatibility
             self.BASE_URL = f"https://{config.github_host}/api/v3"
             console.print(f"[cyan]🏢 Using GitHub Enterprise: {config.github_host}[/cyan]")
         else:
@@ -1423,7 +1427,7 @@ class GitHubAPIClient:
             while True:
                 variables = {"owner": owner, "repo": repo, "cursor": cursor}
                 response = self.session.post(
-                    "https://api.github.com/graphql",
+                    f"{self.BASE_URL}/graphql",
                     json={"query": query, "variables": variables},
                     timeout=30,
                 )
@@ -1589,7 +1593,7 @@ class GitHubAPIClient:
         try:
             while True:
                 response = self.session.post(
-                    "https://api.github.com/graphql",
+                    f"{self.BASE_URL}/graphql",
                     json={"query": query, "variables": variables},
                     timeout=30,
                 )
