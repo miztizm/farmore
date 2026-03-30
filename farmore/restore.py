@@ -88,9 +88,28 @@ class RestoreManager:
             {
                 "Authorization": f"token {token}",
                 "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "Farmore-Restore/0.7.0",
+                "User-Agent": "Farmore/0.10.1 (https://github.com/miztizm/farmore)",
             }
         )
+
+    def close(self) -> None:
+        """Close HTTP session resources."""
+        self.session.close()
+
+    def __enter__(self) -> "RestoreManager":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        """Context manager exit."""
+        self.close()
+
+    def __del__(self) -> None:
+        """Best-effort cleanup on garbage collection."""
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def restore_issues(
         self,
@@ -409,7 +428,7 @@ class RestoreManager:
         """Get existing issue titles in a repository."""
         titles: set[str] = set()
         url = f"{self.github_host}/repos/{repo}/issues"
-        params = {"state": "all", "per_page": 100}
+        params: dict[str, str | int] | None = {"state": "all", "per_page": 100}
 
         try:
             while url:
@@ -422,7 +441,7 @@ class RestoreManager:
 
                 # Handle pagination
                 url = response.links.get("next", {}).get("url")
-                params = {}  # URL includes params
+                params = None  # URL includes params
         except Exception:
             pass
 
@@ -462,9 +481,10 @@ class RestoreManager:
         """Get existing milestone titles in a repository."""
         titles: set[str] = set()
         url = f"{self.github_host}/repos/{repo}/milestones"
+        params: dict[str, str | int] = {"state": "all", "per_page": 100}
 
         try:
-            response = self.session.get(url, params={"state": "all", "per_page": 100})
+            response = self.session.get(url, params=params)
             if response.status_code == 200:
                 for milestone in response.json():
                     titles.add(milestone.get("title", ""))

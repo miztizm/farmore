@@ -7,10 +7,26 @@ Gists backup module for Farmore.
 from dataclasses import dataclass, field
 from pathlib import Path
 import subprocess
+from typing import TypedDict
 
 import requests
 
 from .rich_utils import console
+
+
+class GistBackupResult(TypedDict):
+    success: bool
+    action: str
+    error: str | None
+
+
+class GistBackupSummary(TypedDict):
+    total: int
+    cloned: int
+    updated: int
+    skipped: int
+    failed: int
+    errors: list[str]
 
 
 @dataclass
@@ -85,7 +101,7 @@ class GistsClient:
         # Set up headers
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Farmore/0.6.0 (https://github.com/miztizm/farmore)",
+            "User-Agent": "Farmore/0.10.1 (https://github.com/miztizm/farmore)",
         }
 
         if token:
@@ -101,7 +117,7 @@ class GistsClient:
     def __enter__(self) -> "GistsClient":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         self.close()
 
     def _get_next_page_url(self, response: requests.Response) -> str | None:
@@ -140,7 +156,7 @@ class GistsClient:
             endpoint = "/gists"
             console.print(f"\n[cyan]📝 Fetching YOUR gists (authenticated user)[/cyan]")
 
-        all_gists = []
+        all_gists: list[Gist] = []
         url: str | None = f"{self.base_url}{endpoint}"
         params = {"per_page": self.PER_PAGE}
 
@@ -169,7 +185,7 @@ class GistsClient:
         endpoint = "/gists/starred"
         console.print(f"\n[cyan]⭐ Fetching starred gists[/cyan]")
 
-        all_gists = []
+        all_gists: list[Gist] = []
         url: str | None = f"{self.base_url}{endpoint}"
         params = {"per_page": self.PER_PAGE}
 
@@ -201,7 +217,7 @@ class GistsClient:
         endpoint = "/gists/public"
         console.print(f"\n[cyan]🌐 Fetching public gists (limit: {limit})[/cyan]")
 
-        all_gists = []
+        all_gists: list[Gist] = []
         url: str | None = f"{self.base_url}{endpoint}"
         params = {"per_page": min(limit, self.PER_PAGE)}
 
@@ -303,7 +319,7 @@ class GistsBackup:
     def __enter__(self) -> "GistsBackup":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         self.close()
 
     def backup_user_gists(
@@ -311,7 +327,7 @@ class GistsBackup:
         username: str | None = None,
         include_starred: bool = False,
         skip_existing: bool = False,
-    ) -> dict:
+    ) -> GistBackupSummary:
         """
         Backup all gists for a user.
 
@@ -323,7 +339,7 @@ class GistsBackup:
         Returns:
             Summary dict with counts
         """
-        summary = {
+        summary: GistBackupSummary = {
             "total": 0,
             "cloned": 0,
             "updated": 0,
@@ -373,7 +389,7 @@ class GistsBackup:
         gist: Gist,
         dest_dir: Path,
         skip_existing: bool = False,
-    ) -> dict:
+    ) -> GistBackupResult:
         """
         Backup a single gist.
 
@@ -403,7 +419,7 @@ class GistsBackup:
             console.print(f"   [red]❌ Failed: {gist.id} - {e}[/red]")
             return {"success": False, "action": "failed", "error": str(e)}
 
-    def _clone_gist(self, gist: Gist, dest_path: Path) -> dict:
+    def _clone_gist(self, gist: Gist, dest_path: Path) -> GistBackupResult:
         """Clone a gist as a git repository."""
         try:
             # Use git_pull_url for cloning
@@ -416,7 +432,7 @@ class GistsBackup:
                     f"https://{self.token}:x-oauth-basic@"
                 )
 
-            result = subprocess.run(
+            subprocess.run(
                 ["git", "clone", clone_url, str(dest_path)],
                 capture_output=True,
                 text=True,
@@ -432,7 +448,7 @@ class GistsBackup:
         except subprocess.TimeoutExpired:
             return {"success": False, "action": "failed", "error": "Clone timeout"}
 
-    def _update_gist(self, gist: Gist, gist_path: Path) -> dict:
+    def _update_gist(self, gist: Gist, gist_path: Path) -> GistBackupResult:
         """Update an existing gist repository."""
         try:
             # Fetch and pull updates

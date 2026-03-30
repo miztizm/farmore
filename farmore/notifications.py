@@ -352,7 +352,7 @@ class SlackNotifier(NotificationProvider):
         except Exception as e:
             return False, f"Slack webhook test failed: {e}"
     
-    def _post_webhook(self, url: str, payload: dict) -> bool:
+    def _post_webhook(self, url: str, payload: dict[str, Any]) -> bool:
         """Post to webhook URL."""
         data = json.dumps(payload).encode("utf-8")
         
@@ -365,7 +365,7 @@ class SlackNotifier(NotificationProvider):
         
         try:
             with urllib.request.urlopen(req, timeout=10) as response:
-                return response.status == 200
+                return int(response.status) == 200
         except urllib.error.HTTPError:
             return False
 

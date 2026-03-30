@@ -224,7 +224,7 @@ class AttachmentDownloader:
 
         # Set up headers
         headers = {
-            "User-Agent": "Farmore/0.6.0 (https://github.com/miztizm/farmore)",
+            "User-Agent": "Farmore/0.10.1 (https://github.com/miztizm/farmore)",
         }
         if token:
             headers["Authorization"] = f"token {token}"
@@ -240,7 +240,7 @@ class AttachmentDownloader:
     def __enter__(self) -> "AttachmentDownloader":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         self.close()
 
     def download_from_issues(

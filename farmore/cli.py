@@ -4205,9 +4205,10 @@ def diff_backups(
         farmore diff ./backups  # Compare with last snapshot
         farmore diff ./backup1 ./backup2 --format json
     """
-    from .diff import BackupCompare
+    from .diff import BackupCompare, BackupDiff
 
     compare = BackupCompare()
+    diff: BackupDiff | None = None
 
     if new_path:
         # Compare two directories
@@ -4236,6 +4237,8 @@ def diff_backups(
         if diff is None:
             print_warning("No snapshot found. Create one first with 'farmore snapshot'")
             sys.exit(1)
+
+        assert diff is not None
 
     report = compare.generate_diff_report(diff, format=format.lower())
 

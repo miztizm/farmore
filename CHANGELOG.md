@@ -5,6 +5,23 @@ All notable changes to Farmore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-03-30
+
+### Fixed
+- **Type safety and validation hardening**
+  - Resolved mypy issues across `verify`, `gists`, `github_api`, `restore`, `scheduler`, `config`, and `cli`
+  - Replaced mutable default arguments in validation helpers with safe immutable patterns
+- **Resource management improvements**
+  - Added explicit session cleanup/context-manager support for `RestoreManager`
+  - Improved return-type safety for webhook and YAML/JSON serialization paths
+- **Test execution stability**
+  - Restricted pytest recursion to project tests by excluding backup/vendor directories
+
+### Changed
+- **Version alignment**
+  - Updated package and docs version references to `0.10.1`
+  - Updated runtime User-Agent strings to `Farmore/0.10.1`
+
 ## [0.10.0] - 2025-11-30
 
 ### Added

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "farmore"
-version = "0.10.0"
+version = "0.10.1"
 description = "Mirror every repo you own — in one command"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -79,6 +79,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --strict-markers"
+norecursedirs = ["backups", "search-results", "*.egg-info", ".git", ".venv", "venv", ".github"]
 
 [tool.coverage.run]
 source = ["farmore"]

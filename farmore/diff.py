@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 class ChangeType(str, Enum):
@@ -152,7 +152,7 @@ class BackupCompare:
     
     SNAPSHOT_FILE = ".farmore_snapshot.json"
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the compare engine."""
         pass
     
@@ -398,7 +398,7 @@ class BackupCompare:
         
         if format == "yaml":
             import yaml
-            return yaml.dump(diff.to_dict(), default_flow_style=False)
+            return cast(str, yaml.dump(diff.to_dict(), default_flow_style=False))
         
         # Text format
         lines = [

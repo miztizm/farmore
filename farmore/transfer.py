@@ -85,7 +85,7 @@ class TransferClient:
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": self.API_VERSION,
-            "User-Agent": "Farmore/0.10.0 (https://github.com/miztizm/farmore)",
+            "User-Agent": "Farmore/0.10.1 (https://github.com/miztizm/farmore)",
         })
         self._authenticated_user: str | None = None
 
@@ -93,7 +93,7 @@ class TransferClient:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         """Context manager exit - close session."""
         self.close()
 

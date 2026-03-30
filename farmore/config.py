@@ -118,8 +118,17 @@ class ConfigManager:
 
         try:
             with open(self.profiles_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-                return data.get("profiles", {})
+                raw_data = yaml.safe_load(f) or {}
+                if not isinstance(raw_data, dict):
+                    return {}
+                raw_profiles = raw_data.get("profiles", {})
+                if not isinstance(raw_profiles, dict):
+                    return {}
+                profiles: dict[str, dict[str, Any]] = {}
+                for key, value in raw_profiles.items():
+                    if isinstance(key, str) and isinstance(value, dict):
+                        profiles[key] = value
+                return profiles
         except Exception:
             return {}
 

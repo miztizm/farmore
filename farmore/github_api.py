@@ -8,7 +8,7 @@ import re
 import time
 from datetime import datetime
 from functools import wraps
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar, cast
 
 import requests
 
@@ -69,7 +69,7 @@ def retry_on_failure(
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)
-        def wrapper(*args, **kwargs) -> T:
+        def wrapper(*args: Any, **kwargs: Any) -> T:
             last_error: Exception | None = None
             current_delay = delay
 
@@ -141,7 +141,7 @@ class GitHubAPIClient:
         # Set up authentication headers
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Farmore/0.6.0 (https://github.com/miztizm/farmore)",
+            "User-Agent": "Farmore/0.10.1 (https://github.com/miztizm/farmore)",
         }
 
         if config.token:
@@ -156,7 +156,7 @@ class GitHubAPIClient:
         """Context manager entry."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
         """Context manager exit - close session."""
         self.close()
 
@@ -185,7 +185,8 @@ class GitHubAPIClient:
         try:
             response = self.session.get(f"{self.BASE_URL}/user")
             response.raise_for_status()
-            return response.json().get("login")
+            login = response.json().get("login")
+            return cast(str | None, login)
         except Exception:
             return None
 
@@ -668,9 +669,9 @@ class GitHubAPIClient:
             authenticated_user = self._get_authenticated_user()
             console.print(f"\n[cyan]⭐ Fetching YOUR starred repositories (authenticated as {authenticated_user})[/cyan]")
 
-        all_repos = []
-        next_url = f"{self.BASE_URL}{endpoint}"
-        params = {"per_page": self.PER_PAGE}
+        all_repos: list[Repository] = []
+        next_url: str | None = f"{self.BASE_URL}{endpoint}"
+        params: dict[str, int] | None = {"per_page": self.PER_PAGE}
 
         while next_url:
             response = self._make_request(next_url, initial_params=params if next_url == f"{self.BASE_URL}{endpoint}" else None)
@@ -700,9 +701,9 @@ class GitHubAPIClient:
             authenticated_user = self._get_authenticated_user()
             console.print(f"\n[cyan]👁 Fetching YOUR watched repositories (authenticated as {authenticated_user})[/cyan]")
 
-        all_repos = []
-        next_url = f"{self.BASE_URL}{endpoint}"
-        params = {"per_page": self.PER_PAGE}
+        all_repos: list[Repository] = []
+        next_url: str | None = f"{self.BASE_URL}{endpoint}"
+        params: dict[str, int] | None = {"per_page": self.PER_PAGE}
 
         while next_url:
             response = self._make_request(next_url, initial_params=params if next_url == f"{self.BASE_URL}{endpoint}" else None)
@@ -786,8 +787,8 @@ class GitHubAPIClient:
         console.print(f"\n[cyan]📋 Fetching issues for repository: {owner}/{repo}[/cyan]")
         console.print(f"   [dim]State filter: {state}[/dim]")
 
-        all_issues = []
-        params = {"state": state, "per_page": self.PER_PAGE, "page": 1}
+        all_issues: list[Issue] = []
+        params: dict[str, str | int] = {"state": state, "per_page": self.PER_PAGE, "page": 1}
 
         while True:
             response = self._make_request(f"{self.BASE_URL}{endpoint}", initial_params=params)
@@ -831,7 +832,7 @@ class GitHubAPIClient:
             if "next" not in response.links:
                 break
 
-            params["page"] += 1
+            params["page"] = int(params["page"]) + 1
 
         console.print(f"   [green]✓ Found {len(all_issues)} issues[/green]")
         return all_issues
@@ -864,8 +865,8 @@ class GitHubAPIClient:
         console.print(f"\n[cyan]🔀 Fetching pull requests for repository: {owner}/{repo}[/cyan]")
         console.print(f"   [dim]State filter: {state}[/dim]")
 
-        all_prs = []
-        params = {"state": state, "per_page": self.PER_PAGE, "page": 1}
+        all_prs: list[PullRequest] = []
+        params: dict[str, str | int] = {"state": state, "per_page": self.PER_PAGE, "page": 1}
 
         while True:
             response = self._make_request(f"{self.BASE_URL}{endpoint}", initial_params=params)
@@ -910,7 +911,7 @@ class GitHubAPIClient:
             if "next" not in response.links:
                 break
 
-            params["page"] += 1
+            params["page"] = int(params["page"]) + 1
 
         console.print(f"   [green]✓ Found {len(all_prs)} pull requests[/green]")
         return all_prs
@@ -1043,8 +1044,8 @@ class GitHubAPIClient:
         endpoint = f"/repos/{owner}/{repo}/releases"
         console.print(f"\n[cyan]🚀 Fetching releases for repository: {owner}/{repo}[/cyan]")
 
-        all_releases = []
-        params = {"per_page": self.PER_PAGE, "page": 1}
+        all_releases: list[Release] = []
+        params: dict[str, int] = {"per_page": self.PER_PAGE, "page": 1}
 
         try:
             while True:
@@ -1093,8 +1094,7 @@ class GitHubAPIClient:
                 if "next" not in response.links:
                     break
 
-                params["page"] += 1
-                params = None
+                params["page"] = int(params["page"]) + 1
 
             console.print(f"   [green]✓ Found {len(all_releases)} releases[/green]")
             return all_releases
@@ -1113,14 +1113,12 @@ class GitHubAPIClient:
         """
         # GitHub doesn't have a direct API to check if wiki exists
         # We check if the wiki git repository is accessible
-        wiki_url = f"https://github.com/{owner}/{repo}.wiki.git"
-
         try:
             # Try to get repository info which includes 'has_wiki' flag
             endpoint = f"/repos/{owner}/{repo}"
             response = self._make_request(f"{self.BASE_URL}{endpoint}")
             data = response.json()
-            return data.get("has_wiki", False)
+            return bool(data.get("has_wiki", False))
         except Exception:
             return False
 
@@ -1133,8 +1131,8 @@ class GitHubAPIClient:
         endpoint = f"/repos/{owner}/{repo}/labels"
         console.print(f"\n[cyan]🏷️  Fetching labels for repository: {owner}/{repo}[/cyan]")
 
-        all_labels = []
-        params = {"per_page": self.PER_PAGE, "page": 1}
+        all_labels: list[Label] = []
+        params: dict[str, int] = {"per_page": self.PER_PAGE, "page": 1}
 
         try:
             while True:
@@ -1157,7 +1155,7 @@ class GitHubAPIClient:
                 if "next" not in response.links:
                     break
 
-                params["page"] += 1
+                params["page"] = int(params["page"]) + 1
 
             console.print(f"   [green]✓ Found {len(all_labels)} labels[/green]")
             return all_labels
@@ -1178,7 +1176,7 @@ class GitHubAPIClient:
         console.print(f"\n[cyan]🎯 Fetching milestones for repository: {owner}/{repo}[/cyan]")
 
         all_milestones = []
-        params = {"state": state, "per_page": self.PER_PAGE, "page": 1}
+        params: dict[str, str | int] = {"state": state, "per_page": self.PER_PAGE, "page": 1}
 
         try:
             while True:
@@ -1209,7 +1207,7 @@ class GitHubAPIClient:
                 if "next" not in response.links:
                     break
 
-                params["page"] += 1
+                params["page"] = int(params["page"]) + 1
 
             console.print(f"   [green]✓ Found {len(all_milestones)} milestones[/green]")
             return all_milestones

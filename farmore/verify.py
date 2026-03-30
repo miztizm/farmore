@@ -9,7 +9,18 @@ import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
+
+
+class GitIntegrityResult(TypedDict):
+    valid: bool
+    errors: list[str]
+
+
+class ChecksumResult(TypedDict):
+    errors: list[str]
+    files_checked: int
+    files_valid: int
 
 
 @dataclass
@@ -158,7 +169,7 @@ class BackupVerifier:
         Returns:
             List of VerificationResults for each repository
         """
-        results = []
+        results: list[VerificationResult] = []
 
         if not backup_dir.exists():
             return results
@@ -180,7 +191,7 @@ class BackupVerifier:
 
         return results
 
-    def _verify_git_integrity(self, repo_path: Path, deep: bool = False) -> dict[str, Any]:
+    def _verify_git_integrity(self, repo_path: Path, deep: bool = False) -> GitIntegrityResult:
         """
         Verify git repository integrity.
 
@@ -191,7 +202,7 @@ class BackupVerifier:
         Returns:
             Dictionary with validation results
         """
-        result = {"valid": True, "errors": []}
+        result: GitIntegrityResult = {"valid": True, "errors": []}
 
         try:
             # Check if HEAD is valid
@@ -235,7 +246,7 @@ class BackupVerifier:
 
         return result
 
-    def _verify_checksums(self, repo_path: Path) -> dict[str, Any]:
+    def _verify_checksums(self, repo_path: Path) -> ChecksumResult:
         """
         Verify file checksums in the repository.
 
@@ -245,7 +256,7 @@ class BackupVerifier:
         Returns:
             Dictionary with checksum verification results
         """
-        result = {"errors": [], "files_checked": 0, "files_valid": 0}
+        result: ChecksumResult = {"errors": [], "files_checked": 0, "files_valid": 0}
 
         # Check for a checksums file
         checksum_file = repo_path / ".farmore_checksums"
@@ -280,18 +291,18 @@ class BackupVerifier:
                     for line in f:
                         parts = line.strip().split("  ", 1)
                         if len(parts) == 2:
-                            expected_hash, file_path = parts
-                            full_path = repo_path / file_path
+                            expected_hash, relative_path = parts
+                            full_path = repo_path / relative_path
                             result["files_checked"] += 1
 
                             if not full_path.exists():
-                                result["errors"].append(f"Missing file: {file_path}")
+                                result["errors"].append(f"Missing file: {relative_path}")
                             else:
                                 actual_hash = self._calculate_checksum(full_path)
                                 if actual_hash == expected_hash:
                                     result["files_valid"] += 1
                                 else:
-                                    result["errors"].append(f"Checksum mismatch: {file_path}")
+                                    result["errors"].append(f"Checksum mismatch: {relative_path}")
 
             except Exception as e:
                 result["errors"].append(f"Checksum file read error: {str(e)}")

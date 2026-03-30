@@ -110,8 +110,17 @@ class BackupScheduler:
 
         try:
             with open(self.schedules_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("schedules", {})
+                raw_data = json.load(f)
+                if not isinstance(raw_data, dict):
+                    return {}
+                raw_schedules = raw_data.get("schedules", {})
+                if not isinstance(raw_schedules, dict):
+                    return {}
+                schedules: dict[str, dict[str, Any]] = {}
+                for key, value in raw_schedules.items():
+                    if isinstance(key, str) and isinstance(value, dict):
+                        schedules[key] = value
+                return schedules
         except Exception:
             return {}
 

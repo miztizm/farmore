@@ -398,7 +398,7 @@ class BackupAnalytics:
     
     def _analyze_languages(self, path: Path) -> dict[str, int]:
         """Analyze language distribution in a repository."""
-        extensions = defaultdict(int)
+        extensions: defaultdict[str, int] = defaultdict(int)
         
         language_map = {
             ".py": "Python",

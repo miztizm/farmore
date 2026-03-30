@@ -143,7 +143,7 @@ def validate_path_safety(path: Path) -> Path:
     return path
 
 
-def validate_format_option(format: str, allowed: list[str] = ["json", "yaml"]) -> str:
+def validate_format_option(format: str, allowed: list[str] | None = None) -> str:
     """
     Validate export format option.
     
@@ -158,15 +158,16 @@ def validate_format_option(format: str, allowed: list[str] = ["json", "yaml"]) -
         ValidationError: If format is not in allowed list
     """
     format_lower = format.lower().strip()
+    allowed_values = allowed or ["json", "yaml"]
     
-    if format_lower not in allowed:
-        allowed_str = ", ".join(f"'{f}'" for f in allowed)
+    if format_lower not in allowed_values:
+        allowed_str = ", ".join(f"'{f}'" for f in allowed_values)
         raise ValidationError(f"Invalid format '{format}'. Allowed formats: {allowed_str}")
     
     return format_lower
 
 
-def validate_state_option(state: str, allowed: list[str] = ["all", "open", "closed"]) -> str:
+def validate_state_option(state: str, allowed: list[str] | None = None) -> str:
     """
     Validate state filter option for issues/PRs.
     
@@ -181,9 +182,10 @@ def validate_state_option(state: str, allowed: list[str] = ["all", "open", "clos
         ValidationError: If state is not in allowed list
     """
     state_lower = state.lower().strip()
+    allowed_values = allowed or ["all", "open", "closed"]
     
-    if state_lower not in allowed:
-        allowed_str = ", ".join(f"'{s}'" for s in allowed)
+    if state_lower not in allowed_values:
+        allowed_str = ", ".join(f"'{s}'" for s in allowed_values)
         raise ValidationError(f"Invalid state '{state}'. Allowed states: {allowed_str}")
     
     return state_lower
