@@ -7,6 +7,7 @@ Tests for the attachments module.
 import pytest
 from pathlib import Path
 import tempfile
+from urllib.parse import urlparse
 
 from farmore.attachments import (
     Attachment,
@@ -128,7 +129,7 @@ class TestAttachmentExtractor:
         
         # Should find the user-images URL
         assert len(urls) == 1
-        assert "user-images.githubusercontent.com" in urls[0]
+        assert urlparse(urls[0]).hostname == "user-images.githubusercontent.com"
 
     def test_extract_urls_empty_markdown(self):
         """Test extracting from empty markdown."""
