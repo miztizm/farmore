@@ -109,6 +109,10 @@ class Config:
     bare: bool = False  # Create bare/mirror clones
     lfs: bool = False  # Use Git LFS for cloning
 
+    # Update/divergence policy (for keeping a backup mirroring through local drift)
+    force: bool = False  # Force local repos to match upstream (reset --hard + clean). DESTRUCTIVE to local edits.
+    ff_only: bool = False  # Only fast-forward existing repos; report divergence instead of merging
+
     # GitHub Enterprise support
     github_host: str | None = None  # GitHub Enterprise hostname (deprecated, use github_api_url)
     github_api_url: str = "https://api.github.com"  # GitHub API base URL (supports Enterprise)
@@ -116,6 +120,7 @@ class Config:
     # Repository categorization (for organizing backups by type)
     repository_category: RepositoryCategory | None = None
     disable_categorization: bool = False  # Disable category subdirectories (for search results)
+    flat: bool = False  # Clone repos FLAT — directly as <dest>/<repo>, no repos/<vis>/<owner> nesting
 
     def __post_init__(self) -> None:
         """Validate and normalize configuration."""
@@ -179,6 +184,11 @@ class Config:
         Returns:
             Path relative to dest that includes category subdirectory
         """
+        # FLAT: clone straight into <dest>/<repo> — no repos/<vis>/<owner> nesting,
+        # no owner subdir. Matches an existing flat backup so pulls update in place.
+        if self.flat:
+            return Path(repo.name)
+
         # If categorization is disabled (e.g., for search results), return just the local path
         if self.disable_categorization:
             return Path(repo.local_path)

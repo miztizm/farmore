@@ -183,6 +183,8 @@ class MirrorOrchestrator:
                     repo, dest_path,
                     lfs=self.config.lfs,
                     bare=self.config.bare,
+                    force=self.config.force,
+                    ff_only=self.config.ff_only,
                 )
                 action = "updated" if success else "failed"
                 return MirrorResult(

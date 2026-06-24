@@ -187,6 +187,10 @@ pip uninstall farmore
 # Backup all repos for a user
 farmore user miztizm
 
+# Backup FLAT — repos land directly as <dest>/<repo> (updates an existing flat
+# backup in place instead of the nested repos/<visibility>/<owner>/<repo> tree)
+farmore user miztizm --flat
+
 # Backup a single repository
 farmore repo microsoft/vscode
 

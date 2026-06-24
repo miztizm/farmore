@@ -51,6 +51,24 @@ def test_repository_local_path() -> None:
     assert repo.local_path == "myuser/my-repo"
 
 
+def test_config_flat_returns_repo_name_only() -> None:
+    """flat=True → repos land directly as <dest>/<repo> (no repos/<vis>/<owner>)."""
+    repo = Repository(
+        name="cool-tool",
+        full_name="someowner/cool-tool",
+        owner="someowner",
+        ssh_url="git@github.com:someowner/cool-tool.git",
+        clone_url="https://github.com/someowner/cool-tool.git",
+        default_branch="main",
+        private=False,
+    )
+    flat = Config(target_type=TargetType.USER, target_name="me", dest=Path("dest"), flat=True)
+    assert flat.get_repo_category_path(repo) == Path("cool-tool")
+
+    nested = Config(target_type=TargetType.USER, target_name="me", dest=Path("dest"), flat=False)
+    assert nested.get_repo_category_path(repo) == Path("repos") / "public" / "someowner" / "cool-tool"
+
+
 def test_config_creation() -> None:
     """Test config model creation."""
     config = Config(

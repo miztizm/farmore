@@ -5,6 +5,22 @@ All notable changes to Farmore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-06-24
+
+### Added
+- **Flat layout (`--flat`)** for `user` and `org` backups — clone repositories
+  directly as `<dest>/<repo>` instead of the nested
+  `repos/<visibility>/<owner>/<repo>` tree. A flat layout matches an existing
+  flat backup so subsequent runs **update it in place** instead of re-cloning.
+  - New `Config.flat` field; `Config.get_repo_category_path()` returns just the
+    repo name when flat.
+- **`search --flat-structure`** flattens search-clone results to `<dest>/<repo>`,
+  automatically suffixing `-<owner>` on name collisions so nothing is clobbered.
+
+### Notes
+- Flat is **opt-in** (default remains the nested layout) — no change for existing
+  backups unless you pass `--flat` / `--flat-structure`.
+
 ## [0.10.1] - 2026-03-30
 
 ### Fixed

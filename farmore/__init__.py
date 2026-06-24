@@ -4,7 +4,7 @@ Farmore - Mirror every repo you own — in one command.
 "In a world of ephemeral clouds, be the one with local backups." — schema.cx
 """
 
-__version__ = "0.10.1"
+__version__ = "0.11.0"
 __author__ = "miztizm"
 __license__ = "MIT"
 

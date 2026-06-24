@@ -20,7 +20,7 @@ from rich.table import Table
 from .git_utils import GitOperations
 from .github_api import GitHubAPIClient
 from .mirror import MirrorOrchestrator
-from .models import Config, RepositoryCategory, TargetType, Visibility
+from .models import Config, Repository, RepositoryCategory, TargetType, Visibility
 from .rich_utils import (
     console,
     print_error,
@@ -179,6 +179,31 @@ def validate_repository_format(repository: str) -> tuple[str, str]:
         return _validate_repo_format(repository)
     except ValidationError as e:
         raise ValueError(str(e)) from e
+
+
+def _parse_repo_ref(repository: str) -> tuple[str, str]:
+    """
+    Parse a repo reference into (owner, repo).
+
+    Accepts ``owner/repo``, ``https://github.com/owner/repo[.git]`` and
+    ``git@host:owner/repo.git``. Returns ``("", "")`` if it can't be parsed.
+    Tolerant by design (the ``clone`` convenience command) — strict callers
+    should use ``validate_repository_format``.
+    """
+    ref = repository.strip()
+    if ref.endswith(".git"):
+        ref = ref[:-4]
+    if ref.startswith("git@"):
+        # git@host:owner/repo
+        _, _, ref = ref.partition(":")
+    elif "://" in ref:
+        # scheme://host/owner/repo[/...]
+        after_scheme = ref.split("://", 1)[1]
+        ref = after_scheme.split("/", 1)[1] if "/" in after_scheme else ""
+    parts = [p for p in ref.split("/") if p]
+    if len(parts) >= 2:
+        return parts[-2], parts[-1]
+    return "", ""
 
 
 def export_repository_data(
@@ -389,6 +414,11 @@ def user(
         "--visibility",
         help="Filter repositories by visibility",
     ),
+    flat: bool = typer.Option(
+        False,
+        "--flat",
+        help="Clone FLAT — <dest>/<repo>, no repos/<visibility>/<owner> nesting (updates in place)",
+    ),
     include_forks: bool = typer.Option(
         False,
         "--include-forks",
@@ -467,6 +497,17 @@ def user(
         "--lfs",
         help="Use Git LFS for cloning (for repos with large files)",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Force existing repos to match upstream (git reset --hard + clean). "
+             "Keeps a backup mirroring through local divergence. DESTRUCTIVE to local edits.",
+    ),
+    ff_only: bool = typer.Option(
+        False,
+        "--ff-only",
+        help="Only fast-forward existing repos; report 'diverged' instead of merging.",
+    ),
     max_workers: int = typer.Option(
         4,
         "--max-workers",
@@ -528,6 +569,7 @@ def user(
         dest=dest,
         token=token,
         visibility=visibility,
+        flat=flat,
         include_forks=include_forks,
         include_archived=include_archived,
         exclude_org_repos=exclude_org_repos,
@@ -538,6 +580,8 @@ def user(
         skip_existing=skip_existing,
         bare=bare,
         lfs=lfs,
+        force=force,
+        ff_only=ff_only,
         max_workers=max_workers,
         github_host=github_host,
         github_api_url=api_url or "https://api.github.com",
@@ -584,6 +628,11 @@ def org(
         Visibility.ALL,
         "--visibility",
         help="Filter repositories by visibility",
+    ),
+    flat: bool = typer.Option(
+        False,
+        "--flat",
+        help="Clone FLAT — <dest>/<repo>, no repos/<visibility>/<owner> nesting (updates in place)",
     ),
     include_forks: bool = typer.Option(
         False,
@@ -658,6 +707,17 @@ def org(
         "--lfs",
         help="Use Git LFS for cloning (for repos with large files)",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Force existing repos to match upstream (git reset --hard + clean). "
+             "Keeps a backup mirroring through local divergence. DESTRUCTIVE to local edits.",
+    ),
+    ff_only: bool = typer.Option(
+        False,
+        "--ff-only",
+        help="Only fast-forward existing repos; report 'diverged' instead of merging.",
+    ),
     max_workers: int = typer.Option(
         4,
         "--max-workers",
@@ -717,6 +777,7 @@ def org(
         dest=dest,
         token=token,
         visibility=visibility,
+        flat=flat,
         include_forks=include_forks,
         include_archived=include_archived,
         exclude_repos=list(exclude) if exclude else None,
@@ -726,6 +787,8 @@ def org(
         skip_existing=skip_existing,
         bare=bare,
         lfs=lfs,
+        force=force,
+        ff_only=ff_only,
         max_workers=max_workers,
         github_host=github_host,
         github_api_url=api_url or "https://api.github.com",
@@ -1332,6 +1395,17 @@ def repo(
         "--use-ssh/--no-use-ssh",
         help="Use SSH for cloning (default: True)",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="If the repo already exists, force it to match upstream (git reset --hard + clean) "
+             "instead of merging. Keeps it mirroring through divergence. DESTRUCTIVE to local edits.",
+    ),
+    ff_only: bool = typer.Option(
+        False,
+        "--ff-only",
+        help="If the repo already exists, only fast-forward; report 'diverged' instead of merging.",
+    ),
     token: str | None = typer.Option(
         None,
         "--token",
@@ -1398,7 +1472,9 @@ def repo(
 
         if dest.exists() and GitOperations.is_git_repository(dest):
             console.print(f"   Repository already exists, updating...")
-            result = GitOperations.pull(dest)
+            # Use update() (not pull) so the repo's real default branch is used
+            # and --force/--ff-only are honored.
+            result = GitOperations.update(repo_info, dest, force=force, ff_only=ff_only)
             if result[0]:
                 console.print(f"[green]✅ Repository updated: {dest}[/green]")
             else:
@@ -1433,6 +1509,115 @@ def repo(
     except Exception as e:
         console.print(f"[red]❌ Error: {e}[/red]")
         traceback.print_exc()
+        sys.exit(1)
+
+
+@app.command()
+def clone(
+    repository: str = typer.Argument(
+        ...,
+        help="Repository to clone: 'owner/repo' or a full GitHub URL",
+    ),
+    dest: Path | None = typer.Argument(
+        None,
+        help="Destination directory (default: ./<repo> in the current folder)",
+    ),
+    use_ssh: bool = typer.Option(
+        False,
+        "--use-ssh/--no-use-ssh",
+        help="Clone over SSH instead of HTTPS (default: HTTPS — no keys needed for public repos)",
+    ),
+    bare: bool = typer.Option(
+        False,
+        "--bare",
+        help="Mirror clone (all refs, branches, tags)",
+    ),
+    lfs: bool = typer.Option(
+        False,
+        "--lfs",
+        help="Use Git LFS (for repos with large files)",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="If the destination already exists as a git repo, reset it to upstream "
+             "instead of failing. DESTRUCTIVE to local edits.",
+    ),
+    api_url: str | None = typer.Option(
+        None,
+        "--api-url",
+        "-A",
+        help="GitHub base URL for Enterprise (e.g., https://github.mycompany.com)",
+        envvar="GITHUB_API_URL",
+    ),
+) -> None:
+    """
+    Clone a single repository into the current folder — like `git clone`.
+
+    Unlike `farmore repo` (which builds a structured backup tree), `clone`
+    drops the repo right where you are, defaults to HTTPS (no SSH keys needed
+    for public repos), and needs no token or GitHub API call for public repos.
+
+    "Sometimes you just want the code, not the whole archive." — farmore
+
+    Example:
+        farmore clone microsoft/vscode
+        farmore clone https://github.com/python/cpython cpython-src
+        farmore clone myorg/myrepo --use-ssh
+        farmore clone myorg/myrepo --force   # re-sync an existing checkout
+    """
+    owner, repo_name = _parse_repo_ref(repository)
+    if not owner or not repo_name:
+        console.print("[red]❌ Error: expected 'owner/repo' or a GitHub URL[/red]")
+        sys.exit(1)
+
+    # Default destination: ./<repo> in the current working directory.
+    if dest is None:
+        dest = Path.cwd() / repo_name
+
+    github_url = (api_url or "https://github.com").rstrip("/")
+    if "/api/v3" in github_url:
+        github_url = github_url.split("/api/v3")[0]
+    host = github_url.replace("https://", "").replace("http://", "")
+
+    repo_model = Repository(
+        name=repo_name,
+        full_name=f"{owner}/{repo_name}",
+        owner=owner,
+        ssh_url=f"git@{host}:{owner}/{repo_name}.git",
+        clone_url=f"{github_url}/{owner}/{repo_name}.git",
+        default_branch="main",  # only consulted on --force; detected from origin/HEAD there
+    )
+
+    # If the destination already exists, only proceed when --force re-syncs it.
+    if dest.exists():
+        if GitOperations.is_git_repository(dest):
+            if not force:
+                console.print(
+                    f"[yellow]⚠️  {dest} already exists. Use --force to reset it to upstream.[/yellow]"
+                )
+                sys.exit(1)
+            branch = GitOperations.detect_default_branch(dest)
+            console.print(f"   Destination exists — resetting to origin/{branch}…")
+            ok, msg = GitOperations.reset_to_remote(dest, branch)
+            if ok:
+                console.print(f"[green]✅ Reset to upstream: {dest}[/green]")
+                sys.exit(0)
+            console.print(f"[red]❌ {msg}[/red]")
+            sys.exit(1)
+        # Exists but is not a git repo — refuse to clobber a non-empty dir.
+        if any(dest.iterdir()):
+            console.print(f"[red]❌ {dest} exists and is not empty[/red]")
+            sys.exit(1)
+
+    console.print(f"\n📥 Cloning {owner}/{repo_name} → {dest}")
+    ok, msg = GitOperations.clone(
+        repo_model, dest, use_ssh=use_ssh, bare=bare, lfs=lfs, github_url=github_url
+    )
+    if ok:
+        console.print(f"[green]✅ {msg}: {dest}[/green]")
+    else:
+        console.print(f"[red]❌ {msg}[/red]")
         sys.exit(1)
 
 

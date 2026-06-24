@@ -69,6 +69,41 @@ class GitOperations:
             return None
 
     @staticmethod
+    def detect_default_branch(path: Path) -> str:
+        """
+        Best-effort detect a checkout's upstream default branch.
+
+        Prefers ``origin/HEAD`` (the remote's real default), falls back to the
+        currently checked-out branch, then to ``main``. Useful when we only
+        have the path, not API metadata (e.g. the ``clone --force`` re-sync).
+        """
+        try:
+            result = subprocess.run(
+                ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode == 0 and "/" in result.stdout:
+                return result.stdout.strip().split("/", 1)[1]
+        except (subprocess.SubprocessError, OSError):
+            pass
+        try:
+            result = subprocess.run(
+                ["git", "symbolic-ref", "--short", "HEAD"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (subprocess.SubprocessError, OSError):
+            pass
+        return "main"
+
+    @staticmethod
     def clone(
         repo: Repository,
         dest_path: Path,
@@ -261,7 +296,7 @@ class GitOperations:
             return False, f"Mirror update failed: {error_msg}"
 
     @staticmethod
-    def pull(path: Path, branch: str = "main") -> tuple[bool, str]:
+    def pull(path: Path, branch: str = "main", ff_only: bool = False) -> tuple[bool, str]:
         """
         Pull updates from remote branch.
 
@@ -270,6 +305,10 @@ class GitOperations:
         Args:
             path: Path to the git repository
             branch: Branch to pull from
+            ff_only: Only fast-forward; never create a merge commit. When the
+                local branch has diverged this returns (False, "Diverged ...")
+                instead of leaving a half-merged tree — the caller can then
+                decide whether to ``--force``.
 
         Returns:
             Tuple of (success, message)
@@ -288,9 +327,15 @@ class GitOperations:
                 # Don't check return code - branch might not exist
             )
 
-            # Then pull
+            # Then pull. --ff-only keeps a backup honest: it refuses to merge a
+            # diverged history (which would otherwise need manual conflict
+            # resolution or silently rewrite the mirror).
+            cmd = ["git", "pull"]
+            if ff_only:
+                cmd.append("--ff-only")
+            cmd += ["origin", branch]
             result = subprocess.run(
-                ["git", "pull", "origin", branch],
+                cmd,
                 cwd=path,
                 capture_output=True,
                 text=True,
@@ -308,17 +353,104 @@ class GitOperations:
             return False, "Pull operation timed out"
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr.strip() if e.stderr else str(e)
+            low = error_msg.lower()
 
             # Handle common cases
-            if "no tracking information" in error_msg.lower():
+            if "no tracking information" in low:
                 return True, "No tracking information (empty repo?)"
-            if "couldn't find remote ref" in error_msg.lower():
+            if "couldn't find remote ref" in low:
                 return True, "Branch not found (empty repo?)"
+
+            # Divergence — surface it cleanly so a mirror run can report
+            # "diverged" (or escalate to force) rather than die mid-merge.
+            if (
+                "not possible to fast-forward" in low
+                or "need to specify how to reconcile" in low
+                or "have diverged" in low
+                or "would be overwritten" in low
+            ):
+                return False, "Diverged from upstream (use --force to reset)"
 
             return False, f"Pull failed: {error_msg}"
 
     @staticmethod
-    def update(repo: Repository, path: Path, lfs: bool = False, bare: bool = False) -> tuple[bool, str]:
+    def reset_to_remote(path: Path, branch: str = "main") -> tuple[bool, str]:
+        """
+        Force the local working tree to exactly match ``origin/<branch>``.
+
+        For backup/mirror use: discards local commits AND uncommitted changes
+        so the backup keeps tracking upstream even after the local copy has
+        diverged or been hand-edited. Files ignored by the *upstream* (committed)
+        ``.gitignore`` — ``node_modules``, build artifacts, ``.venv`` — are left
+        untouched, because ``git clean -fd`` (no ``-x``) skips ignored paths and
+        the reset restores upstream's ``.gitignore`` first. Only tracked content
+        and non-ignored untracked files are reset/removed.
+
+        "A mirror that argues with the source isn't a mirror." — farmore
+
+        Args:
+            path: Path to the git repository
+            branch: Branch to reset to
+
+        Returns:
+            Tuple of (success, message)
+        """
+        if not GitOperations.is_git_repository(path):
+            return False, "Not a git repository"
+
+        try:
+            # Make sure we actually have the ref locally before pointing at it.
+            subprocess.run(
+                ["git", "fetch", "origin", branch],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            # Recreate/repoint the local branch at the fetched remote tip.
+            checkout = subprocess.run(
+                ["git", "checkout", "-B", branch, f"origin/{branch}"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if checkout.returncode != 0:
+                err = (checkout.stderr or "").strip()
+                if "did not match any" in err.lower() or "unknown revision" in err.lower():
+                    return False, f"Remote branch origin/{branch} not found"
+            # Hard reset tracked files, then drop untracked-but-not-ignored cruft.
+            subprocess.run(
+                ["git", "reset", "--hard", f"origin/{branch}"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=60,
+            )
+            subprocess.run(
+                ["git", "clean", "-fd"],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            return True, "Reset to upstream"
+        except subprocess.TimeoutExpired:
+            return False, "Reset operation timed out"
+        except subprocess.CalledProcessError as e:
+            error_msg = e.stderr.strip() if e.stderr else str(e)
+            return False, f"Reset failed: {error_msg}"
+
+    @staticmethod
+    def update(
+        repo: Repository,
+        path: Path,
+        lfs: bool = False,
+        bare: bool = False,
+        force: bool = False,
+        ff_only: bool = False,
+    ) -> tuple[bool, str]:
         """
         Update an existing repository (fetch + pull, or mirror update for bare repos).
 
@@ -327,6 +459,11 @@ class GitOperations:
             path: Path to the git repository
             lfs: Whether to also fetch LFS objects
             bare: Whether this is a bare/mirror repository
+            force: Hard-reset the local tree to upstream (discards local commits
+                + uncommitted changes). Lets a backup keep mirroring through
+                local divergence. Ignored for bare repos (a mirror is already
+                authoritative). Takes precedence over ``ff_only``.
+            ff_only: Only fast-forward; report divergence instead of merging.
 
         Returns:
             Tuple of (success, message)
@@ -334,7 +471,7 @@ class GitOperations:
         if bare:
             # For mirror/bare repos, use remote update
             return GitOperations.update_mirror(path)
-        
+
         # Fetch first
         success, message = GitOperations.fetch(path)
         if not success:
@@ -347,6 +484,10 @@ class GitOperations:
                 # Log warning but continue
                 pass
 
-        # Then pull
-        success, message = GitOperations.pull(path, repo.default_branch)
+        # Force mode: make local exactly match upstream (mirror-through-drift).
+        if force:
+            return GitOperations.reset_to_remote(path, repo.default_branch)
+
+        # Then pull (optionally ff-only so divergence is reported, not merged).
+        success, message = GitOperations.pull(path, repo.default_branch, ff_only=ff_only)
         return success, message
